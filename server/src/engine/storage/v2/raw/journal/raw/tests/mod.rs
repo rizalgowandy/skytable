@@ -161,8 +161,15 @@ impl RawJournalAdapter for SimpleDBJournal {
     ) -> RuntimeResult<()> {
         match meta {
             EventMeta::NewKey => {
-                let key_size = u64::from_le_bytes(file.read_block()?);
-                let mut keybuf = vec![0u8; key_size as usize];
+                let key_size = u64::from_le_bytes(file.read_block()?) as usize;
+                let mut keybuf = Vec::<u8>::new();
+                if keybuf.try_reserve_exact(key_size as usize).is_err() {
+                    return Err(StorageError::RawJournalDecodeEventCorruptedPayload.into());
+                }
+                unsafe {
+                    keybuf.as_mut_ptr().write_bytes(0, key_size);
+                    keybuf.set_len(key_size);
+                }
                 file.tracked_read(&mut keybuf)?;
                 match String::from_utf8(keybuf) {
                     Ok(k) => gs.data.borrow_mut().push(k),
