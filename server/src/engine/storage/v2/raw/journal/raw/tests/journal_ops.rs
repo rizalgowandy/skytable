@@ -27,8 +27,8 @@
 use {
     super::{
         super::{
-            create_journal, debug_get_trace, open_journal, DriverEventKind, JournalReaderTraceEvent,
-            JournalSettings, JournalWriterTraceEvent, RawJournalWriter,
+            create_journal, debug_get_trace, open_journal, DriverEventKind,
+            JournalReaderTraceEvent, JournalSettings, JournalWriterTraceEvent, RawJournalWriter,
         },
         SimpleDB, SimpleDBJournal,
     },
