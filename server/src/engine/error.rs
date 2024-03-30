@@ -169,11 +169,11 @@ enumerate_err! {
     /// Errors that occur when restoring transactional data
     pub enum TransactionError {
         /// corrupted txn payload. has more bytes than expected
-        DecodeCorruptedPayloadMoreBytes = "txn-payload-unexpected-content",
+        V1DecodeCorruptedPayloadMoreBytes = "txn-payload-unexpected-content",
         /// transaction payload is corrupted. has lesser bytes than expected
-        DecodedUnexpectedEof = "txn-payload-unexpected-eof",
+        V1DecodedUnexpectedEof = "txn-payload-unexpected-eof",
         /// unknown transaction operation. usually indicates a corrupted payload
-        DecodeUnknownTxnOp = "txn-payload-unknown-payload",
+        V1DecodeUnknownTxnOp = "txn-payload-unknown-payload",
         /// While restoring a certain item, a non-resolvable conflict was encountered in the global state, because the item was
         /// already present (when it was expected to not be present)
         OnRestoreDataConflictAlreadyExists = "txn-payload-conflict-already-exists",
@@ -185,19 +185,24 @@ enumerate_err! {
 }
 
 enumerate_err! {
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
     /// SDSS based storage engine errors
     pub enum StorageError {
-        // header
+        /*
+            ----
+            SDSS Errors
+            ----
+            These errors are common across all versions
+        */
         /// version mismatch
-        HeaderDecodeVersionMismatch = "header-version-mismatch",
+        FileDecodeHeaderVersionMismatch = "header-version-mismatch",
         /// The entire header is corrupted
-        HeaderDecodeCorruptedHeader = "header-corrupted",
-        // journal
-        /// An entry in the journal is corrupted
-        JournalLogEntryCorrupted = "journal-entry-corrupted",
-        /// The structure of the journal is corrupted
-        JournalCorrupted = "journal-corrupted",
+        FileDecodeHeaderCorrupted = "header-corrupted",
+        /*
+            ----
+            Common encoding errors
+            ----
+        */
         // internal file structures
         /// While attempting to decode a structure in an internal segment of a file, the storage engine ran into a possibly irrecoverable error
         InternalDecodeStructureCorrupted = "structure-decode-corrupted",
@@ -205,21 +210,48 @@ enumerate_err! {
         InternalDecodeStructureCorruptedPayload = "structure-decode-corrupted-payload",
         /// the data for an internal structure was decoded but is logically invalid
         InternalDecodeStructureIllegalData = "structure-decode-illegal-data",
+        /*
+            ----
+            V1 Journal Errors
+            ----
+        */
+        /// An entry in the journal is corrupted
+        V1JournalDecodeLogEntryCorrupted = "journal-entry-corrupted",
+        /// The structure of the journal is corrupted
+        V1JournalDecodeCorrupted = "journal-corrupted",
         /// when attempting to restore a data batch from disk, the batch journal crashed and had a corruption, but it is irrecoverable
-        DataBatchRestoreCorruptedBatch = "batch-corrupted-batch",
+        V1DataBatchDecodeCorruptedBatch = "batch-corrupted-batch",
         /// when attempting to restore a data batch from disk, the driver encountered a corrupted entry
-        DataBatchRestoreCorruptedEntry = "batch-corrupted-entry",
-        /// we failed to close the data batch
-        DataBatchCloseError = "batch-persist-close-failed",
+        V1DataBatchDecodeCorruptedEntry = "batch-corrupted-entry",
         /// the data batch file is corrupted
-        DataBatchRestoreCorruptedBatchFile = "batch-corrupted-file",
+        V1DataBatchDecodeCorruptedBatchFile = "batch-corrupted-file",
         /// the system database is corrupted
-        SysDBCorrupted = "sysdb-corrupted",
-        // raw journal errors
-        RawJournalEventCorruptedMetadata = "journal-event-metadata-corrupted",
-        RawJournalEventCorrupted = "journal-invalid-event",
-        RawJournalCorrupted = "journal-corrupted",
-        RawJournalInvalidEvent = "journal-invalid-event-order",
-        RawJournalRuntimeCriticalLwtHBFail = "journal-lwt-heartbeat-failed",
+        V1SysDBDecodeCorrupted = "sysdb-corrupted",
+        /// we failed to close the data batch
+        V1DataBatchRuntimeCloseError = "batch-persist-close-failed",
+        /*
+            ----
+            V2 Journal Errors
+            ----
+        */
+        /// Journal event metadata corrupted
+        RawJournalDecodeEventCorruptedMetadata = "journal-event-metadata-corrupted",
+        /// The event body is corrupted
+        RawJournalDecodeEventCorruptedPayload = "journal-event-payload-corrupted",
+        /// batch contents was unexpected (for example, we expected n events but got m events)
+        RawJournalDecodeBatchContentsMismatch = "journal-batch-unexpected-termination",
+        /// batch contents was validated and executed but the final integrity check failed
+        RawJournalDecodeBatchIntegrityFailure = "journal-batch-integrity-check-failed",
+        /// unexpected order of events
+        RawJournalDecodeInvalidEvent = "journal-invalid-event-order",
+        /// corrupted event within a batch
+        RawJournalDecodeCorruptionInBatchMetadata = "journal-batch-corrupted-event-metadata",
+        /*
+            ----
+            runtime errors
+            ----
+        */
+        RawJournalRuntimeHeartbeatFail = "journal-lwt-heartbeat-failed",
+        RawJournalRuntimeDirty = "journal-in-dirty-state",
     }
 }

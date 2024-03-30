@@ -140,6 +140,9 @@ impl<S: FileSpecV1, F: FileWrite + FileWriteExt> SdssFile<S, F> {
         self.file.fwrite_all(data)?;
         self.file.fsync_all()
     }
+    pub fn truncate(&mut self, new_size: u64) -> IoResult<()> {
+        self.file.f_truncate(new_size)
+    }
 }
 
 /*
@@ -234,13 +237,13 @@ impl<S: FileSpecV1> TrackedReader<S> {
                 Err(e) => return Err(e),
             }
         } else {
-            Err(SysIOError::from(std::io::ErrorKind::InvalidInput).into_inner())
+            Err(SysIOError::from(std::io::ErrorKind::UnexpectedEof).into_inner())
         }
     }
     /// Tracked read of a given block size. Shorthand for [`Self::tracked_read`]
     pub fn read_block<const N: usize>(&mut self) -> IoResult<[u8; N]> {
         if !self.has_left(N as _) {
-            return Err(SysIOError::from(std::io::ErrorKind::InvalidInput).into_inner());
+            return Err(SysIOError::from(std::io::ErrorKind::UnexpectedEof).into_inner());
         }
         let mut buf = [0; N];
         self.tracked_read(&mut buf)?;
@@ -258,6 +261,9 @@ impl<S: FileSpecV1> TrackedReader<S> {
     }
     pub fn cursor(&self) -> u64 {
         self.cursor
+    }
+    pub fn cached_size(&self) -> u64 {
+        self.len
     }
 }
 
