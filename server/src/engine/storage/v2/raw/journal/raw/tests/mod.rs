@@ -34,11 +34,16 @@ use {
     },
     crate::engine::{
         error::StorageError,
-        storage::{common::sdss::sdss_r1::rw::TrackedReader, v2::raw::spec::SystemDatabaseV1},
+        storage::{
+            common::{checksum::SCrc64, sdss::sdss_r1::rw::TrackedReader},
+            v2::raw::spec::SystemDatabaseV1,
+        },
         RuntimeResult,
     },
     std::cell::RefCell,
 };
+
+const SANE_MEM_LIMIT_BYTES: usize = 2048;
 
 /*
     impls for journal tests
@@ -103,8 +108,14 @@ macro_rules! impl_db_event {
 
 impl_db_event!(
     DbEventPush<'_> as 0 => |me, buf| {
-        buf.extend(&(me.0.len() as u64).to_le_bytes());
-        buf.extend(me.0.as_bytes());
+        let length_bytes = (me.0.len() as u64).to_le_bytes();
+        let me_bytes = me.0.as_bytes();
+        let mut checksum = SCrc64::new();
+        checksum.update(&length_bytes);
+        checksum.update(&me_bytes);
+        buf.extend(&(checksum.finish().to_le_bytes())); // checksum
+        buf.extend(&(me.0.len() as u64).to_le_bytes()); // length
+        buf.extend(me.0.as_bytes()); // payload
     },
     DbEventPop as 1,
     DbEventClear as 2
@@ -161,19 +172,25 @@ impl RawJournalAdapter for SimpleDBJournal {
     ) -> RuntimeResult<()> {
         match meta {
             EventMeta::NewKey => {
-                let key_size = u64::from_le_bytes(file.read_block()?) as usize;
-                let mut keybuf = Vec::<u8>::new();
-                if keybuf.try_reserve_exact(key_size as usize).is_err() {
+                let checksum = u64::from_le_bytes(file.read_block()?);
+                let length = u64::from_le_bytes(file.read_block()?) as usize;
+                let mut payload = Vec::<u8>::new();
+                if length > SANE_MEM_LIMIT_BYTES
+                    || payload.try_reserve_exact(length as usize).is_err()
+                {
                     return Err(StorageError::RawJournalDecodeEventCorruptedPayload.into());
                 }
                 unsafe {
-                    keybuf.as_mut_ptr().write_bytes(0, key_size);
-                    keybuf.set_len(key_size);
+                    payload.as_mut_ptr().write_bytes(0, length);
+                    payload.set_len(length);
                 }
-                file.tracked_read(&mut keybuf)?;
-                match String::from_utf8(keybuf) {
-                    Ok(k) => gs.data.borrow_mut().push(k),
-                    Err(_) => {
+                file.tracked_read(&mut payload)?;
+                let mut this_checksum = SCrc64::new();
+                this_checksum.update(&length.to_le_bytes());
+                this_checksum.update(&payload);
+                match String::from_utf8(payload) {
+                    Ok(k) if this_checksum.finish() == checksum => gs.data.borrow_mut().push(k),
+                    Err(_) | Ok(_) => {
                         return Err(StorageError::RawJournalDecodeEventCorruptedPayload.into())
                     }
                 }
