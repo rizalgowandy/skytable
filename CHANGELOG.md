@@ -4,6 +4,10 @@ All changes in this project will be noted in this file.
 
 ## Version 0.8.1
 
+### Additions
+
+- Added support for manual repair with the `skyd repair` command
+
 ### Fixes
 
 - Fixed migration from v1 SE (released with v0.8.0-beta) to v2 SE (released in v0.8.0)

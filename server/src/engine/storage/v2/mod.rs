@@ -168,7 +168,10 @@ pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
 
 pub fn repair() -> RuntimeResult<()> {
     // back up all files
-    let backup_dir = format!("backups/{}-before-repair-backup", util::time_now_string());
+    let backup_dir = format!(
+        "backups/{}-before-recovery-process",
+        util::time_now_string()
+    );
     context::set_dmsg("creating backup directory");
     FileSystem::create_dir_all(&backup_dir)?;
     context::set_dmsg("backing up GNS");

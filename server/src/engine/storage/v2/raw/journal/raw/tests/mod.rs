@@ -114,7 +114,7 @@ impl_db_event!(
         checksum.update(&length_bytes);
         checksum.update(&me_bytes);
         buf.extend(&(checksum.finish().to_le_bytes())); // checksum
-        buf.extend(&(me.0.len() as u64).to_le_bytes()); // length
+        buf.extend(&length_bytes); // length
         buf.extend(me.0.as_bytes()); // payload
     },
     DbEventPop as 1,
@@ -173,7 +173,8 @@ impl RawJournalAdapter for SimpleDBJournal {
         match meta {
             EventMeta::NewKey => {
                 let checksum = u64::from_le_bytes(file.read_block()?);
-                let length = u64::from_le_bytes(file.read_block()?) as usize;
+                let length_u64 = u64::from_le_bytes(file.read_block()?);
+                let length = length_u64 as usize;
                 let mut payload = Vec::<u8>::new();
                 if length > SANE_MEM_LIMIT_BYTES
                     || payload.try_reserve_exact(length as usize).is_err()
@@ -186,7 +187,7 @@ impl RawJournalAdapter for SimpleDBJournal {
                 }
                 file.tracked_read(&mut payload)?;
                 let mut this_checksum = SCrc64::new();
-                this_checksum.update(&length.to_le_bytes());
+                this_checksum.update(&length_u64.to_le_bytes());
                 this_checksum.update(&payload);
                 match String::from_utf8(payload) {
                     Ok(k) if this_checksum.finish() == checksum => gs.data.borrow_mut().push(k),

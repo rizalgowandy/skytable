@@ -13,6 +13,9 @@ Usage: skyd [OPTION]...
 
 skyd is the Skytable database server daemon and can be used to serve database requests.
 
+Commands:
+  repair                        Check and repair any detected database storage errors
+
 Flags:
   -h, --help                    Display this help menu and exit.
   -v, --version                 Display the version number and exit.
@@ -36,5 +39,7 @@ Notes:
   - If no `--mode` is provided, we default to `dev`
   - You must provide `--auth-root-password` to set the default root password
   - To use TLS, you must provide both `--tlscert` and `--tlskey`
+  - When you run `repair`, your previous data is backed up in the `backups/` folder.
+  Restore if needed.
 
 For further assistance, refer to the official documentation here: https://docs.skytable.org
