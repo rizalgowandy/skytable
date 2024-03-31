@@ -148,12 +148,12 @@ pub fn parse() -> CliResult<Task> {
         }
     };
     let password = match args.remove("--password") {
-        Some(p) => p,
+        Some(p) => check_password(p, "cli arguments")?,
         None => {
             // let us check the environment variable to see if anything was set
             match env::var(env_vars::SKYDB_PASSWORD) {
-                Ok(v) => v,
-                Err(_) => read_password("Enter password: ")?,
+                Ok(v) => check_password(v, "env")?,
+                Err(_) => check_password(read_password("Enter password: ")?, "env")?,
             }
         }
     };
@@ -166,6 +166,16 @@ pub fn parse() -> CliResult<Task> {
         }
     } else {
         Err(CliError::ArgsErr(format!("found unknown arguments")))
+    }
+}
+
+fn check_password(p: String, source: &str) -> CliResult<String> {
+    if p.is_empty() {
+        return Err(CliError::ArgsErr(format!(
+            "password value cannot be empty (currently set via {source})"
+        )));
+    } else {
+        Ok(p)
     }
 }
 
