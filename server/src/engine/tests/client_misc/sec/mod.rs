@@ -31,7 +31,10 @@ mod dml_sec;
 use {
     crate::engine::error::QueryError,
     sky_macros::dbtest,
-    skytable::{error::Error, query},
+    skytable::{
+        error::{ConnectionSetupError, Error},
+        query,
+    },
 };
 
 const INVALID_SYNTAX_ERR: u16 = QueryError::QLInvalidSyntax.value_u8() as u16;
@@ -51,4 +54,13 @@ fn deny_unknown_tokens() {
             "{token}",
         );
     }
+}
+
+#[dbtest(username = "root", password = "")]
+fn ensure_empty_password_returns_hs_error_5() {
+    let db = db_connect!();
+    assert_err_eq!(
+        db,
+        Error::ConnectionSetupErr(ConnectionSetupError::HandshakeError(5))
+    );
 }

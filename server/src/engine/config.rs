@@ -359,7 +359,7 @@ pub enum ConfigSource {
 impl ConfigSource {
     fn as_str(&self) -> &'static str {
         match self {
-            ConfigSource::Cli => "CLI",
+            ConfigSource::Cli => "command-line arguments",
             ConfigSource::Env => "ENV",
             ConfigSource::File => "config file",
         }
@@ -530,8 +530,8 @@ fn arg_decode_auth<CS: ConfigurationSource>(
         return Err(ConfigError::with_src(
             CS::SOURCE,
             ConfigErrorKind::ErrorString(format!(
-                "to enable auth, you must provide values for {}",
-                CS::KEY_AUTH_DRIVER,
+                "to enable password auth, you must provide a value for '{}'",
+                CS::KEY_AUTH_ROOT_PASSWORD,
             )),
         )
         .into());
