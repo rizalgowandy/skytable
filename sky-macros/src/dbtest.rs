@@ -241,6 +241,14 @@ pub fn dbtest(attrs: TokenStream, item: TokenStream) -> TokenStream {
             block = quote! {
                 #block
                 /// Get a Skyhash connection the database (defined by [`sky_macros::dbtest`])
+                #[allow(unused_macros)]
+                macro_rules! db_connect {
+                    () => {{
+                        skytable::Config::new(__DBTEST_HOST, __DBTEST_PORT, __DBTEST_USER, __DBTEST_PASS).connect()
+                    }}
+                }
+                /// Get a Skyhash connection the database (defined by [`sky_macros::dbtest`])
+                #[allow(unused_macros)]
                 macro_rules! db {
                     () => {{
                         skytable::Config::new(__DBTEST_HOST, __DBTEST_PORT, __DBTEST_USER, __DBTEST_PASS).connect().unwrap()

@@ -40,33 +40,44 @@ macro_rules! pprint {
     }
 }
 
-pub fn format_response(resp: Response, print_special: bool, pretty_format: bool) -> bool {
+pub fn format_response(resp: Response, print_special: bool, in_repl: bool) -> bool {
     match resp {
-        Response::Empty => pprint!(pretty_format, "(Okay)".cyan()),
+        Response::Empty => {
+            if in_repl {
+                println!("{}", "(Okay)".cyan())
+            }
+            // for empty responses outside the repl, it's equivalent to an exit 0, so we don't output anything to stdout or stderr
+        }
         Response::Error(e) => {
-            println!("{}", format!("(server error code: {e})").red());
+            if in_repl {
+                println!("{}", format!("(server error code: {e})").red());
+            } else {
+                // outside the repl, just write the error code to stderr. note, the query was technically "successful" because the server received it
+                // and responded to it. but on the application end, it was not. so, no need for a nonzero exit code
+                eprintln!("{e}");
+            }
             return false;
         }
         Response::Value(v) => {
-            print_value(v, print_special, pretty_format);
+            print_value(v, print_special, in_repl);
             println!();
         }
         Response::Row(r) => {
-            print_row(r, pretty_format);
+            print_row(r, in_repl);
             println!();
         }
         Response::Rows(rows) => {
             if rows.is_empty() {
-                pprint!(pretty_format, "[0 rows returned]".grey().italic());
+                pprint!(in_repl, "[0 rows returned]".grey().italic());
             } else {
                 for (i, row) in rows.into_iter().enumerate().map(|(i, r)| (i + 1, r)) {
-                    if pretty_format {
+                    if in_repl {
                         let fmt = format!("({i})").grey().italic();
                         print!("{fmt}")
                     } else {
                         print!("({i})")
                     }
-                    print_row(row, pretty_format);
+                    print_row(row, in_repl);
                     println!();
                 }
             }

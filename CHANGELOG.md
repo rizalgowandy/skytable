@@ -10,8 +10,14 @@ All changes in this project will be noted in this file.
 
 ### Fixes
 
-- Fixed migration from v1 SE (released with v0.8.0-beta) to v2 SE (released in v0.8.0)
-- Fixed health reporting
+- **Server**:
+  - Fixed migration from v1 SE (released with v0.8.0-beta) to v2 SE (released in v0.8.0)
+  - Fixed health reporting
+  - Fixed a connection crash (not a server-wide crash) at the pre-connection stage when authentication data
+    was sent incorrectly
+- **CLI**:
+  - Fixed `--eval` output. All server errors are now correctly written to `stderr`
+  - Guard against empty passwords
 
 ## Version 0.8.0
 

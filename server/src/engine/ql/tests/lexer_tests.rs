@@ -294,26 +294,26 @@ fn safe_query_float() {
 
 #[test]
 fn safe_query_binary() {
-    let (query, query_window) = make_safe_query(b"?", SFQ_BINARY);
-    let binary = lex_secure(&query, query_window).unwrap();
-    assert_eq!(
-        binary,
-        vec![Token::Lit(Lit::new_bin(
-            "cringe😃😄😁😆😅😂🤣😊😸😺".as_bytes()
-        ))]
-    );
+    for (test_payload_string, expected) in [
+        (b"\x050\n".as_slice(), b"".as_slice()),
+        (SFQ_BINARY, "cringe😃😄😁😆😅😂🤣😊😸😺".as_bytes()),
+    ] {
+        let (query, query_window) = make_safe_query(b"?", test_payload_string);
+        let binary = lex_secure(&query, query_window).unwrap();
+        assert_eq!(binary, vec![Token::Lit(Lit::new_bin(expected))]);
+    }
 }
 
 #[test]
 fn safe_query_string() {
-    let (query, query_window) = make_safe_query(b"?", SFQ_STRING);
-    let binary = lex_secure(&query, query_window).unwrap();
-    assert_eq!(
-        binary,
-        vec![Token::Lit(Lit::new_string(
-            "cringe😃😄😁😆😅😂🤣😊😸😺".to_owned().into()
-        ))]
-    );
+    for (test_payload_string, expected) in [
+        (b"\x060\n".as_slice(), ""),
+        (SFQ_STRING, "cringe😃😄😁😆😅😂🤣😊😸😺"),
+    ] {
+        let (query, query_window) = make_safe_query(b"?", test_payload_string);
+        let binary = lex_secure(&query, query_window).unwrap();
+        assert_eq!(binary, vec![Token::Lit(Lit::new_str(expected))]);
+    }
 }
 
 #[test]
