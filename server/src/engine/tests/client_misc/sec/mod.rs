@@ -64,3 +64,21 @@ fn ensure_empty_password_returns_hs_error_5() {
         Error::ConnectionSetupErr(ConnectionSetupError::HandshakeError(5))
     );
 }
+
+#[dbtest(username = "", password = "1234567890")]
+fn ensure_empty_username_returns_hs_error_5() {
+    let db = db_connect!();
+    assert_err_eq!(
+        db,
+        Error::ConnectionSetupErr(ConnectionSetupError::HandshakeError(5))
+    );
+}
+
+#[dbtest(username = "", password = "")]
+fn ensure_empty_username_and_password_returns_hs_error_5() {
+    let db = db_connect!();
+    assert_err_eq!(
+        db,
+        Error::ConnectionSetupErr(ConnectionSetupError::HandshakeError(5))
+    );
+}
