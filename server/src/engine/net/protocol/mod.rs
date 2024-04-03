@@ -44,14 +44,9 @@ mod handshake;
 #[cfg(test)]
 mod tests;
 
-// re-export
-pub use exchange::SQuery;
-
-use crate::engine::core::system_db::VerifyUser;
-
 use {
     self::{
-        exchange::{QExchangeResult, QExchangeState},
+        exchange::{Exchange, ExchangeResult, ExchangeState, Pipeline},
         handshake::{
             AuthMode, CHandshake, DataExchangeMode, HandshakeResult, HandshakeState,
             HandshakeVersion, ProtocolError, ProtocolVersion, QueryMode,
@@ -60,7 +55,8 @@ use {
     super::{IoResult, QueryLoopResult, Socket},
     crate::engine::{
         self,
-        error::QueryError,
+        core::system_db::VerifyUser,
+        error::{QueryError, QueryResult},
         fractal::{Global, GlobalInstanceLike},
         mem::{BufferedScanner, IntegerRepr},
     },
@@ -68,31 +64,12 @@ use {
     tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter},
 };
 
-#[repr(u8)]
-#[derive(sky_macros::EnumMethods, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(unused)]
-pub enum ResponseType {
-    Null = 0x00,
-    Bool = 0x01,
-    UInt8 = 0x02,
-    UInt16 = 0x03,
-    UInt32 = 0x04,
-    UInt64 = 0x05,
-    SInt8 = 0x06,
-    SInt16 = 0x07,
-    SInt32 = 0x08,
-    SInt64 = 0x09,
-    Float32 = 0x0A,
-    Float64 = 0x0B,
-    Binary = 0x0C,
-    String = 0x0D,
-    List = 0x0E,
-    Dict = 0x0F,
-    Error = 0x10,
-    Row = 0x11,
-    Empty = 0x12,
-    MultiRow = 0x13,
-}
+// re-export
+pub use self::exchange::SQuery;
+
+/*
+    connection state
+*/
 
 #[derive(Debug, PartialEq)]
 pub struct ClientLocalState {
@@ -128,106 +105,9 @@ impl ClientLocalState {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Response {
-    Empty,
-    Null,
-    Serialized {
-        ty: ResponseType,
-        size: usize,
-        data: Vec<u8>,
-    },
-    Bool(bool),
-}
-
-pub(super) async fn query_loop<S: Socket>(
-    con: &mut BufWriter<S>,
-    buf: &mut BytesMut,
-    global: &Global,
-) -> IoResult<QueryLoopResult> {
-    // handshake
-    let mut client_state = match do_handshake(con, buf, global).await? {
-        PostHandshake::Okay(hs) => hs,
-        PostHandshake::ConnectionClosedFin => return Ok(QueryLoopResult::Fin),
-        PostHandshake::ConnectionClosedRst => return Ok(QueryLoopResult::Rst),
-        PostHandshake::Error(e) => {
-            // failed to handshake; we'll close the connection
-            let hs_err_packet = [b'H', 0, 1, e.value_u8()];
-            con.write_all(&hs_err_packet).await?;
-            return Ok(QueryLoopResult::HSFailed);
-        }
-    };
-    // done handshaking
-    con.write_all(b"H\x00\x00\x00").await?;
-    con.flush().await?;
-    let mut state = QExchangeState::default();
-    let mut cursor = Default::default();
-    loop {
-        if con.read_buf(buf).await? == 0 {
-            if buf.is_empty() {
-                return Ok(QueryLoopResult::Fin);
-            } else {
-                return Ok(QueryLoopResult::Rst);
-            }
-        }
-        if !state.has_reached_target(buf) {
-            // we haven't buffered sufficient bytes; keep working
-            continue;
-        }
-        let sq = match unsafe {
-            // UNSAFE(@ohsayan): as the resume cursor is private, we can't access this anyways
-            exchange::resume(buf, cursor, state)
-        } {
-            (_, QExchangeResult::SQCompleted(sq)) => sq,
-            (new_cursor, QExchangeResult::ChangeState(new_state)) => {
-                cursor = new_cursor;
-                state = new_state;
-                continue;
-            }
-            (_, QExchangeResult::Error) => {
-                // respond with error
-                let [a, b] = (QueryError::SysNetworkSystemIllegalClientPacket.value_u8() as u16)
-                    .to_le_bytes();
-                con.write_all(&[ResponseType::Error.value_u8(), a, b])
-                    .await?;
-                con.flush().await?;
-                // reset buffer, cursor and state
-                buf.clear();
-                cursor = Default::default();
-                state = QExchangeState::default();
-                continue;
-            }
-        };
-        // now execute query
-        match engine::core::exec::dispatch_to_executor(global, &mut client_state, sq).await {
-            Ok(Response::Empty) => {
-                con.write_all(&[ResponseType::Empty.value_u8()]).await?;
-            }
-            Ok(Response::Serialized { ty, size, data }) => {
-                con.write_u8(ty.value_u8()).await?;
-                let mut irep = IntegerRepr::new();
-                con.write_all(irep.as_bytes(size as u64)).await?;
-                con.write_u8(b'\n').await?;
-                con.write_all(&data).await?;
-            }
-            Ok(Response::Bool(b)) => {
-                con.write_all(&[ResponseType::Bool.value_u8(), b as u8])
-                    .await?
-            }
-            Ok(Response::Null) => con.write_u8(ResponseType::Null.value_u8()).await?,
-            Err(e) => {
-                let [a, b] = (e.value_u8() as u16).to_le_bytes();
-                con.write_all(&[ResponseType::Error.value_u8(), a, b])
-                    .await?;
-            }
-        }
-        con.flush().await?;
-        // reset buffer, cursor and state
-        buf.clear();
-        cursor = Default::default();
-        state = QExchangeState::default();
-    }
-}
+/*
+    handshake
+*/
 
 #[derive(Debug, PartialEq)]
 enum PostHandshake {
@@ -315,41 +195,194 @@ async fn do_handshake<S: Socket>(
     Ok(PostHandshake::Error(ProtocolError::RejectAuth))
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-enum AccumlatorStatus {
-    Pending(u64),
-    Completed(u64),
+/*
+    exec event loop
+*/
+
+async fn cleanup_for_next_query<S: Socket>(
+    con: &mut BufWriter<S>,
+    buf: &mut BytesMut,
+) -> IoResult<(ExchangeState, usize)> {
+    con.flush().await?; // flush write buffer
+    buf.clear(); // clear read buffer
+    Ok((ExchangeState::default(), 0))
 }
 
-/// Scan an integer
-///
-/// Allowed sequences:
-/// - < int >\n
-/// - \n ; FIXME(@ohsayan): a LF only sequence is allowed. should it be removed?
-fn scan_int(s: &mut BufferedScanner, acc: u64) -> Result<AccumlatorStatus, ()> {
-    let mut acc = acc;
-    let mut okay = true;
-    let mut end = s.rounded_eq(b'\n');
-    while okay & !end & !s.eof() {
-        let d = unsafe { s.next_byte() };
-        okay &= d.is_ascii_digit();
-        match acc.checked_mul(10).map(|v| v.checked_add((d & 0x0f) as _)) {
-            Some(Some(v)) => acc = v,
-            _ => okay = false,
+pub(super) async fn query_loop<S: Socket>(
+    con: &mut BufWriter<S>,
+    buf: &mut BytesMut,
+    global: &Global,
+) -> IoResult<QueryLoopResult> {
+    // handshake
+    let mut client_state = match do_handshake(con, buf, global).await? {
+        PostHandshake::Okay(hs) => hs,
+        PostHandshake::ConnectionClosedFin => return Ok(QueryLoopResult::Fin),
+        PostHandshake::ConnectionClosedRst => return Ok(QueryLoopResult::Rst),
+        PostHandshake::Error(e) => {
+            // failed to handshake; we'll close the connection
+            let hs_err_packet = [b'H', 0, 1, e.value_u8()];
+            con.write_all(&hs_err_packet).await?;
+            return Ok(QueryLoopResult::HSFailed);
         }
-        end = s.rounded_eq(b'\n');
+    };
+    // done handshaking
+    con.write_all(b"H\x00\x00\x00").await?;
+    con.flush().await?;
+    let mut state = ExchangeState::default();
+    let mut cursor = 0;
+    loop {
+        if con.read_buf(buf).await? == 0 {
+            if buf.is_empty() {
+                return Ok(QueryLoopResult::Fin);
+            } else {
+                return Ok(QueryLoopResult::Rst);
+            }
+        }
+        match Exchange::try_complete(
+            unsafe {
+                // UNSAFE(@ohsayan): the cursor is either 0 or returned by the exchange impl
+                BufferedScanner::new_with_cursor(&buf, cursor)
+            },
+            state,
+        ) {
+            Ok((result, new_cursor)) => match result {
+                ExchangeResult::NewState(new_state) => {
+                    state = new_state;
+                    cursor = new_cursor;
+                }
+                ExchangeResult::Simple(query) => {
+                    exec_simple(con, &mut client_state, global, query).await?;
+                    (state, cursor) = cleanup_for_next_query(con, buf).await?;
+                }
+                ExchangeResult::Pipeline(pipe) => {
+                    exec_pipe(con, &mut client_state, global, pipe).await?;
+                    (state, cursor) = cleanup_for_next_query(con, buf).await?;
+                }
+            },
+            Err(()) => {
+                // respond with error
+                let [a, b] = (QueryError::SysNetworkSystemIllegalClientPacket.value_u8() as u16)
+                    .to_le_bytes();
+                con.write_all(&[ResponseType::Error.value_u8(), a, b])
+                    .await?;
+                (state, cursor) = cleanup_for_next_query(con, buf).await?;
+            }
+        }
     }
-    unsafe {
-        // UNSAFE(@ohsayan): if we hit an LF, then we still have space until EOA
-        s.incr_cursor_if(end)
+}
+
+/*
+    responses
+*/
+
+#[repr(u8)]
+#[derive(sky_macros::EnumMethods, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(unused)]
+pub enum ResponseType {
+    Null = 0x00,
+    Bool = 0x01,
+    UInt8 = 0x02,
+    UInt16 = 0x03,
+    UInt32 = 0x04,
+    UInt64 = 0x05,
+    SInt8 = 0x06,
+    SInt16 = 0x07,
+    SInt32 = 0x08,
+    SInt64 = 0x09,
+    Float32 = 0x0A,
+    Float64 = 0x0B,
+    Binary = 0x0C,
+    String = 0x0D,
+    List = 0x0E,
+    Dict = 0x0F,
+    Error = 0x10,
+    Row = 0x11,
+    Empty = 0x12,
+    MultiRow = 0x13,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Response {
+    Empty,
+    Null,
+    Serialized {
+        ty: ResponseType,
+        size: usize,
+        data: Vec<u8>,
+    },
+    Bool(bool),
+}
+
+async fn write_response<S: Socket>(
+    resp: QueryResult<Response>,
+    con: &mut BufWriter<S>,
+) -> IoResult<()> {
+    match resp {
+        Ok(Response::Empty) => con.write_all(&[ResponseType::Empty.value_u8()]).await,
+        Ok(Response::Serialized { ty, size, data }) => {
+            con.write_u8(ty.value_u8()).await?;
+            let mut irep = IntegerRepr::new();
+            con.write_all(irep.as_bytes(size as u64)).await?;
+            con.write_u8(b'\n').await?;
+            con.write_all(&data).await
+        }
+        Ok(Response::Bool(b)) => {
+            con.write_all(&[ResponseType::Bool.value_u8(), b as u8])
+                .await
+        }
+        Ok(Response::Null) => con.write_u8(ResponseType::Null.value_u8()).await,
+        Err(e) => {
+            let [a, b] = (e.value_u8() as u16).to_le_bytes();
+            con.write_all(&[ResponseType::Error.value_u8(), a, b]).await
+        }
     }
-    if okay & end {
-        Ok(AccumlatorStatus::Completed(acc))
-    } else {
-        if okay {
-            Ok(AccumlatorStatus::Pending(acc))
-        } else {
-            Err(())
+}
+
+/*
+    simple query
+*/
+
+async fn exec_simple<S: Socket>(
+    con: &mut BufWriter<S>,
+    cs: &mut ClientLocalState,
+    global: &Global,
+    query: SQuery<'_>,
+) -> IoResult<()> {
+    write_response(
+        engine::core::exec::dispatch_to_executor(global, cs, query).await,
+        con,
+    )
+    .await
+}
+
+/*
+    pipeline
+*/
+
+async fn exec_pipe<'a, S: Socket>(
+    con: &mut BufWriter<S>,
+    cs: &mut ClientLocalState,
+    global: &Global,
+    mut pipe: Pipeline<'a>,
+) -> IoResult<()> {
+    loop {
+        match pipe.next_query() {
+            Ok(None) => break Ok(()),
+            Ok(Some(q)) => {
+                write_response(
+                    engine::core::exec::dispatch_to_executor(global, cs, q).await,
+                    con,
+                )
+                .await?
+            }
+            Err(()) => {
+                // respond with error
+                let [a, b] = (QueryError::SysNetworkSystemIllegalClientPacket.value_u8() as u16)
+                    .to_le_bytes();
+                con.write_all(&[ResponseType::Error.value_u8(), a, b])
+                    .await?;
+                break Ok(());
+            }
         }
     }
 }

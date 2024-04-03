@@ -66,7 +66,7 @@ impl<'a, T> Scanner<'a, T> {
         self.__cursor
     }
     /// Returns the buffer from the current position
-    pub fn current_buffer(&self) -> &[T] {
+    pub fn current_buffer(&self) -> &'a [T] {
         &self.d[self.__cursor..]
     }
     /// Returns the ptr to the cursor
@@ -85,6 +85,9 @@ impl<'a, T> Scanner<'a, T> {
     /// Returns true if the scanner has atleast `sizeof` bytes remaining
     pub fn has_left(&self, sizeof: usize) -> bool {
         self.remaining() >= sizeof
+    }
+    pub fn remaining_size_is(&self, size: usize) -> bool {
+        self.remaining() == size
     }
     /// Returns true if the rounded cursor matches the predicate
     pub fn rounded_cursor_matches(&self, f: impl Fn(&T) -> bool) -> bool {

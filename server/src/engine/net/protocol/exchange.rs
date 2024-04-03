@@ -1,5 +1,5 @@
 /*
- * Created on Wed Sep 20 2023
+ * Created on Tue Apr 02 2024
  *
  * This file is a part of Skytable
  * Skytable (formerly known as TerrabaseDB or Skybase) is a free and open-source
@@ -7,7 +7,7 @@
  * vision to provide flexibility in data modelling without compromising
  * on performance, queryability or scalability.
  *
- * Copyright (c) 2023, Sayan Nandan <ohsayan@outlook.com>
+ * Copyright (c) 2024, Sayan Nandan <nandansayan@outlook.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -24,211 +24,308 @@
  *
 */
 
-use {super::AccumlatorStatus, crate::engine::mem::BufferedScanner};
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Resume(usize);
-impl Resume {
-    #[cfg(test)]
-    pub(super) const fn test_new(v: usize) -> Self {
-        Self(v)
-    }
-    #[cfg(test)]
-    pub(super) const fn inner(&self) -> usize {
-        self.0
-    }
-}
-impl Default for Resume {
-    fn default() -> Self {
-        Self(0)
-    }
-}
-
-pub(super) unsafe fn resume<'a>(
-    buf: &'a [u8],
-    last_cursor: Resume,
-    last_state: QExchangeState,
-) -> (Resume, QExchangeResult<'a>) {
-    let mut scanner = unsafe {
-        // UNSAFE(@ohsayan): we are the ones who generate the cursor and restore it
-        BufferedScanner::new_with_cursor(buf, last_cursor.0)
-    };
-    let ret = last_state.resume(&mut scanner);
-    (Resume(scanner.cursor()), ret)
-}
+use {
+    crate::{engine::mem::BufferedScanner, util::compiler},
+    core::fmt,
+};
 
 /*
-    SQ
+    Skyhash/2.1 Implementation
+    ---
+    This is an implementation of Skyhash/2.1, Skytable's data exchange protocol.
+
+    0. Notes
+    ++++++++++++++++++
+    - 2.1 is fully backwards compatible with 2.0 clients. As such we don't even designate it as a separate version.
+    - The "LF exception" essentially allows `0\n` to be equal to `\n`. It's unimportant to enforce this
+
+    1.1 Query Types
+    ++++++++++++++++++
+    The protocol makes two distinctions, at the protocol-level about the type of queries:
+    a. Simple query
+    b. Pipeline
+
+    1.1.1 Simple Query
+    ++++++++++++++++++
+    A simple query
 */
 
-#[derive(Debug, PartialEq)]
+/*
+    sq definition
+*/
+
+#[derive(Debug)]
 pub struct SQuery<'a> {
-    q: &'a [u8],
+    buf: &'a [u8],
     q_window: usize,
 }
 
 impl<'a> SQuery<'a> {
-    pub(super) fn new(q: &'a [u8], q_window: usize) -> Self {
-        Self { q, q_window }
+    fn new(buf: &'a [u8], q_window: usize) -> Self {
+        Self { buf, q_window }
     }
-    pub fn payload(&self) -> &'a [u8] {
-        self.q
+    pub fn query(&self) -> &[u8] {
+        &self.buf[..self.q_window]
     }
-    pub fn q_window(&self) -> usize {
-        self.q_window
-    }
-    pub fn query(&self) -> &'a [u8] {
-        &self.payload()[..self.q_window()]
-    }
-    pub fn params(&self) -> &'a [u8] {
-        &self.payload()[self.q_window()..]
-    }
-    #[cfg(test)]
-    pub fn query_str(&self) -> &str {
-        core::str::from_utf8(self.query()).unwrap()
-    }
-    #[cfg(test)]
-    pub fn params_str(&self) -> &str {
-        core::str::from_utf8(self.params()).unwrap()
+    pub fn params(&self) -> &[u8] {
+        &self.buf[self.q_window..]
     }
 }
 
 /*
-    utils
+    scanint
 */
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub(super) enum QExchangeStateInternal {
-    Initial,
-    PendingMeta1,
-    PendingMeta2,
-    PendingData,
+fn scan_usize_guaranteed_termination(scanner: &mut BufferedScanner) -> Result<usize, ()> {
+    let mut ret = 0usize;
+    let mut stop = scanner.rounded_eq(b'\n');
+    while !scanner.eof() & !stop {
+        let next_byte = unsafe {
+            // UNSAFE(@ohsayan): loop invariant
+            scanner.next_byte()
+        };
+        match ret
+            .checked_mul(10)
+            .map(|int| int.checked_add((next_byte & 0x0f) as usize))
+        {
+            Some(Some(int)) if next_byte.is_ascii_digit() => ret = int,
+            _ => return Err(()),
+        }
+        stop = scanner.rounded_eq(b'\n');
+    }
+    unsafe {
+        // UNSAFE(@ohsayan): scanned stop, but not accounted for yet
+        scanner.incr_cursor_if(stop)
+    }
+    if stop {
+        Ok(ret)
+    } else {
+        Err(())
+    }
 }
 
-impl Default for QExchangeStateInternal {
+#[derive(Clone, Copy)]
+struct Usize {
+    v: isize,
+}
+
+impl Usize {
+    const SHIFT: u32 = isize::BITS - 1;
+    const MASK: isize = 1 << Self::SHIFT;
+    #[inline(always)]
+    const fn new(v: isize) -> Self {
+        Self { v }
+    }
+    #[inline(always)]
+    const fn new_unflagged(int: usize) -> Self {
+        Self::new(int as isize)
+    }
+    #[inline(always)]
+    fn int(&self) -> usize {
+        (self.v & !Self::MASK) as usize
+    }
+    #[inline(always)]
+    fn update(&mut self, new: usize) {
+        self.v = (new as isize) | (self.v & Self::MASK);
+    }
+    #[inline(always)]
+    fn flag(&self) -> bool {
+        (self.v & Self::MASK) != 0
+    }
+    #[inline(always)]
+    fn set_flag_if(&mut self, iff: bool) {
+        self.v |= (iff as isize) << Self::SHIFT;
+    }
+}
+
+impl fmt::Debug for Usize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Usize")
+            .field("int", &self.int())
+            .field("flag", &self.flag())
+            .finish()
+    }
+}
+
+impl Usize {
+    /// Attempt to "complete" a scan of the integer. Idempotency guarantee: it is guaranteed that calls would not change the state
+    /// of the [`Usize`] or the buffer if the final state has been reached
+    fn update_scanned(&mut self, scanner: &mut BufferedScanner) -> Result<(), ()> {
+        let mut stop = scanner.rounded_eq(b'\n');
+        while !stop & !scanner.eof() & !self.flag() {
+            let byte = unsafe {
+                // UNSAFE(@ohsayan): verified by loop invariant
+                scanner.next_byte()
+            };
+            match (self.int() as isize) // this cast allows us to guarantee that we don't trip the flag
+                .checked_mul(10)
+                .map(|int| int.checked_add((byte & 0x0f) as isize))
+            {
+                Some(Some(int)) if byte.is_ascii_digit() => self.update(int as usize),
+                _ => return Err(()),
+            }
+            stop = scanner.rounded_eq(b'\n');
+        }
+        unsafe {
+            // UNSAFE(@ohsayan): scanned stop byte but did not account for it; the flag check is for cases where the input buffer
+            // has something like [LF][LF] in which case we stopped at the first LF but we would accidentally read the second one
+            // on the second derogatory call
+            scanner.incr_cursor_if(stop & !self.flag())
+        }
+        self.set_flag_if(stop | self.flag()); // if second call we must check the flag
+        Ok(())
+    }
+}
+
+/*
+    states
+*/
+
+#[derive(Debug)]
+pub enum ExchangeState {
+    Initial,
+    Simple(SQState),
+    Pipeline(PipeState),
+}
+
+#[derive(Debug)]
+pub struct SQState {
+    packet_s: Usize,
+}
+
+impl SQState {
+    const fn new(packet_s: Usize) -> Self {
+        Self { packet_s }
+    }
+}
+
+#[derive(Debug)]
+pub struct PipeState {
+    packet_s: Usize,
+}
+
+impl PipeState {
+    const fn new(packet_s: Usize) -> Self {
+        Self { packet_s }
+    }
+}
+
+impl Default for ExchangeState {
     fn default() -> Self {
         Self::Initial
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub(super) struct QExchangeState {
-    state: QExchangeStateInternal,
-    target: usize,
-    md_packet_size: u64,
-    md_q_window: u64,
+pub enum ExchangeResult<'a> {
+    NewState(ExchangeState),
+    Simple(SQuery<'a>),
+    Pipeline(Pipeline<'a>),
 }
 
-impl Default for QExchangeState {
-    fn default() -> Self {
-        Self::new()
+pub struct Exchange<'a> {
+    scanner: BufferedScanner<'a>,
+}
+
+impl<'a> Exchange<'a> {
+    const MIN_Q_SIZE: usize = "P0\n".len();
+    fn new(scanner: BufferedScanner<'a>) -> Self {
+        Self { scanner }
     }
-}
-
-#[derive(Debug, PartialEq)]
-/// Result after attempting to complete (or terminate) a query time exchange
-pub(super) enum QExchangeResult<'a> {
-    /// We completed the exchange and yielded a [`SQuery`]
-    SQCompleted(SQuery<'a>),
-    /// We're changing states
-    ChangeState(QExchangeState),
-    /// We hit an error and need to terminate this exchange
-    Error,
-}
-
-impl QExchangeState {
-    fn _new(
-        state: QExchangeStateInternal,
-        target: usize,
-        md_packet_size: u64,
-        md_q_window: u64,
-    ) -> Self {
-        Self {
-            state,
-            target,
-            md_packet_size,
-            md_q_window,
-        }
-    }
-    #[cfg(test)]
-    pub(super) fn new_test(
-        state: QExchangeStateInternal,
-        target: usize,
-        md_packet_size: u64,
-        md_q_window: u64,
-    ) -> Self {
-        Self::_new(state, target, md_packet_size, md_q_window)
+    pub fn try_complete(
+        scanner: BufferedScanner<'a>,
+        state: ExchangeState,
+    ) -> Result<(ExchangeResult, usize), ()> {
+        Self::new(scanner).complete(state)
     }
 }
 
-impl QExchangeState {
-    pub const MIN_READ: usize = b"S\x00\n\x00\n".len();
-    pub fn new() -> Self {
-        Self::_new(QExchangeStateInternal::Initial, Self::MIN_READ, 0, 0)
-    }
-    pub fn has_reached_target(&self, new_buffer: &[u8]) -> bool {
-        new_buffer.len() >= self.target
-    }
-    fn resume<'a>(self, scanner: &mut BufferedScanner<'a>) -> QExchangeResult<'a> {
-        debug_assert!(scanner.has_left(Self::MIN_READ));
-        match self.state {
-            QExchangeStateInternal::Initial => self.start_initial(scanner),
-            QExchangeStateInternal::PendingMeta1 => self.resume_at_md1(scanner),
-            QExchangeStateInternal::PendingMeta2 => self.resume_at_md2(scanner),
-            QExchangeStateInternal::PendingData => self.resume_data(scanner),
-        }
-    }
-    fn start_initial<'a>(self, scanner: &mut BufferedScanner<'a>) -> QExchangeResult<'a> {
-        if unsafe { scanner.next_byte() } != b'S' {
-            // has to be a simple query!
-            return QExchangeResult::Error;
-        }
-        self.resume_at_md1(scanner)
-    }
-    fn resume_at_md1<'a>(mut self, scanner: &mut BufferedScanner<'a>) -> QExchangeResult<'a> {
-        let packet_size = match super::scan_int(scanner, self.md_packet_size) {
-            Ok(AccumlatorStatus::Completed(v)) => v,
-            Ok(AccumlatorStatus::Pending(p)) => {
-                // if this is the first run, we read 5 bytes and need atleast one more; if this is a resume we read one or more bytes and
-                // need atleast one more
-                self.target += 1;
-                self.md_packet_size = p;
-                self.state = QExchangeStateInternal::PendingMeta1;
-                return QExchangeResult::ChangeState(self);
+impl<'a> Exchange<'a> {
+    fn complete(mut self, state: ExchangeState) -> Result<(ExchangeResult<'a>, usize), ()> {
+        match state {
+            ExchangeState::Initial => {
+                if compiler::likely(self.scanner.has_left(Self::MIN_Q_SIZE)) {
+                    let first_byte = unsafe {
+                        // UNSAFE(@ohsayan): already verified in above branch
+                        self.scanner.next_byte()
+                    };
+                    match first_byte {
+                        b'S' => self.process_simple(SQState::new(Usize::new_unflagged(0))),
+                        b'P' => self.process_pipe(PipeState::new(Usize::new_unflagged(0))),
+                        _ => return Err(()),
+                    }
+                } else {
+                    Ok(ExchangeResult::NewState(state))
+                }
             }
-            Err(()) => return QExchangeResult::Error,
-        };
-        self.md_packet_size = packet_size;
-        self.target = scanner.cursor() + packet_size as usize;
-        // hand over control to md2
-        self.resume_at_md2(scanner)
+            ExchangeState::Simple(sq_s) => self.process_simple(sq_s),
+            ExchangeState::Pipeline(pipe_s) => self.process_pipe(pipe_s),
+        }
+        .map(|ret| (ret, self.scanner.cursor()))
     }
-    fn resume_at_md2<'a>(mut self, scanner: &mut BufferedScanner<'a>) -> QExchangeResult<'a> {
-        let q_window = match super::scan_int(scanner, self.md_q_window) {
-            Ok(AccumlatorStatus::Completed(v)) => v,
-            Ok(AccumlatorStatus::Pending(p)) => {
-                self.md_q_window = p;
-                self.state = QExchangeStateInternal::PendingMeta2;
-                return QExchangeResult::ChangeState(self);
-            }
-            Err(()) => return QExchangeResult::Error,
-        };
-        self.md_q_window = q_window;
-        // hand over control to data
-        self.resume_data(scanner)
-    }
-    fn resume_data<'a>(mut self, scanner: &mut BufferedScanner<'a>) -> QExchangeResult<'a> {
-        let df_size = self.target - scanner.cursor();
-        if scanner.remaining() == df_size {
-            unsafe {
-                QExchangeResult::SQCompleted(SQuery::new(
-                    scanner.next_chunk_variable(df_size),
-                    self.md_q_window as usize,
-                ))
+    fn process_simple(&mut self, mut sq_state: SQState) -> Result<ExchangeResult<'a>, ()> {
+        // try to complete the packet size if needed
+        sq_state.packet_s.update_scanned(&mut self.scanner)?;
+        if sq_state.packet_s.flag() & self.scanner.remaining_size_is(sq_state.packet_s.int()) {
+            // we have the full packet size and the required data
+            let q_window = scan_usize_guaranteed_termination(&mut self.scanner)?;
+            let nonzero = (q_window != 0) & (sq_state.packet_s.int() != 0);
+            if compiler::likely(self.scanner.remaining_size_is(q_window) & nonzero) {
+                // this check is important because the client might have given us an incorrect q size
+                Ok(ExchangeResult::Simple(SQuery::new(
+                    self.scanner.current_buffer(),
+                    q_window,
+                )))
+            } else {
+                Err(())
             }
         } else {
-            self.state = QExchangeStateInternal::PendingData;
-            QExchangeResult::ChangeState(self)
+            Ok(ExchangeResult::NewState(ExchangeState::Simple(sq_state)))
+        }
+    }
+    fn process_pipe(&mut self, mut pipe_s: PipeState) -> Result<ExchangeResult<'a>, ()> {
+        // try to complete the packet size if needed
+        pipe_s.packet_s.update_scanned(&mut self.scanner)?;
+        if pipe_s.packet_s.flag() & self.scanner.remaining_size_is(pipe_s.packet_s.int()) {
+            // great, we have the entire packet
+            Ok(ExchangeResult::Pipeline(Pipeline::new(
+                self.scanner.current_buffer(),
+            )))
+        } else {
+            Ok(ExchangeResult::NewState(ExchangeState::Pipeline(pipe_s)))
+        }
+    }
+}
+
+/*
+    pipeline
+*/
+
+pub struct Pipeline<'a> {
+    scanner: BufferedScanner<'a>,
+}
+
+impl<'a> Pipeline<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        Self {
+            scanner: BufferedScanner::new(buf),
+        }
+    }
+    pub fn next_query(&mut self) -> Result<Option<SQuery<'a>>, ()> {
+        let nonzero = self.scanner.buffer_len() != 0;
+        if self.scanner.eof() & nonzero {
+            Ok(None)
+        } else {
+            let query_size = scan_usize_guaranteed_termination(&mut self.scanner)?;
+            let param_size = scan_usize_guaranteed_termination(&mut self.scanner)?;
+            let (full_size, overflow) = param_size.overflowing_add(query_size);
+            if compiler::likely(self.scanner.remaining_size_is(full_size) & !overflow) {
+                Ok(Some(SQuery {
+                    buf: self.scanner.current_buffer(),
+                    q_window: query_size,
+                }))
+            } else {
+                Err(())
+            }
         }
     }
 }

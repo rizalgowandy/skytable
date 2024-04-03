@@ -430,13 +430,13 @@ impl FractalMgr {
                 _ = sigterm.recv() => {
                     info!("flp: finishing any pending maintenance tasks");
                     let global = global.clone();
-                    tokio::task::spawn_blocking(|| self.general_executor(global)).await.unwrap();
+                    let _ = tokio::task::spawn_blocking(|| self.general_executor(global)).await;
                     info!("flp: exited executor service");
                     break;
                 },
                 _ = tokio::time::sleep(dur) => {
                     let global = global.clone();
-                    tokio::task::spawn_blocking(|| self.general_executor(global)).await.unwrap()
+                    let _ = tokio::task::spawn_blocking(|| self.general_executor(global)).await;
                 }
                 task = lpq.recv() => {
                     let Task { threshold, task } = match task {
