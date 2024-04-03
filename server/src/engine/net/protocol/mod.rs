@@ -259,7 +259,7 @@ pub(super) async fn query_loop<S: Socket>(
                     (state, cursor) = cleanup_for_next_query(con, buf).await?;
                 }
             },
-            Err(()) => {
+            Err(_) => {
                 // respond with error
                 let [a, b] = (QueryError::SysNetworkSystemIllegalClientPacket.value_u8() as u16)
                     .to_le_bytes();
@@ -375,7 +375,7 @@ async fn exec_pipe<'a, S: Socket>(
                 )
                 .await?
             }
-            Err(()) => {
+            Err(_) => {
                 // respond with error
                 let [a, b] = (QueryError::SysNetworkSystemIllegalClientPacket.value_u8() as u16)
                     .to_le_bytes();

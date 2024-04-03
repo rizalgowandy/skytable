@@ -25,7 +25,10 @@
 */
 
 use {
-    super::handshake::ProtocolError,
+    super::{
+        exchange::{Exchange, ExchangeError, ExchangeResult, ExchangeState},
+        handshake::ProtocolError,
+    },
     crate::engine::{
         mem::BufferedScanner,
         net::protocol::handshake::{
@@ -269,4 +272,87 @@ fn hs_bad_auth_mode() {
     scan_hs(HS_BAD_MODE_AUTH, |hs_result| {
         assert_eq!(hs_result, HandshakeResult::Error(ProtocolError::RejectAuth))
     })
+}
+
+/*
+    QT-DEX
+*/
+
+fn iterate_payload(payload: &str, start: usize, f: impl Fn(usize, &[u8])) {
+    for i in start..payload.len() {
+        f(i, &payload.as_bytes()[..i])
+    }
+}
+
+fn iterate_exchange_payload(
+    payload: &str,
+    start: usize,
+    f: impl Fn(usize, Result<(ExchangeResult, usize), ExchangeError>),
+) {
+    iterate_payload(payload, start, |i, bytes| {
+        let scanner = BufferedScanner::new(bytes);
+        f(i, Exchange::try_complete(scanner, ExchangeState::default()))
+    })
+}
+
+fn iterate_exchange_payload_from_zero(
+    payload: &str,
+    f: impl Fn(usize, Result<(ExchangeResult, usize), ExchangeError>),
+) {
+    iterate_exchange_payload(payload, 0, f)
+}
+
+/*
+    corner cases
+*/
+
+#[test]
+fn zero_sized_packet() {
+    for payload in [
+        "S\n",     // zero packet
+        "S0\n",    // zero packet
+        "S2\n0\n", // zero query
+        "S1\n\n",  // zero query
+    ] {
+        iterate_exchange_payload_from_zero(payload, |size, result| {
+            if size == payload.len() {
+                // we got the full payload
+                assert_eq!(result, Err(ExchangeError::IncorrectQuerySizeOrMoreBytes))
+            } else {
+                // we don't have the full payload
+                if size < 3 {
+                    assert_eq!(
+                        result,
+                        Ok((ExchangeResult::NewState(ExchangeState::Initial), 0))
+                    )
+                } else {
+                    assert!(
+                        matches!(
+                            result,
+                            Ok((ExchangeResult::NewState(ExchangeState::Simple(_)), _))
+                        ),
+                        "failed for {:?}, result is {:?}",
+                        &payload[..size],
+                        result,
+                    );
+                }
+            }
+        });
+    }
+}
+
+#[test]
+fn invalid_first_byte() {
+    for payload in ["A1\n\n", "B7\n5\nsayan"] {
+        iterate_exchange_payload(payload, 1, |size, result| {
+            if size >= 3 {
+                assert_eq!(result, Err(ExchangeError::UnknownFirstByte))
+            } else {
+                assert_eq!(
+                    result,
+                    Ok((ExchangeResult::NewState(ExchangeState::Initial), 0))
+                )
+            }
+        })
+    }
 }
