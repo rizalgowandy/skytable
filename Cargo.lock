@@ -108,7 +108,7 @@ checksum = "a507401cad91ec6a857ed5513a2073c82a9b9048762b885bb98655b306964681"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.57",
+ "syn 2.0.58",
 ]
 
 [[package]]
@@ -881,7 +881,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.57",
+ "syn 2.0.58",
 ]
 
 [[package]]
@@ -1223,7 +1223,7 @@ checksum = "7eb0b34b42edc17f6b7cac84a52a1c5f0e1bb2227e997ca9011ea3dd34e8610b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.57",
+ "syn 2.0.58",
 ]
 
 [[package]]
@@ -1300,7 +1300,7 @@ dependencies = [
  "libsky",
  "log",
  "num_cpus",
- "skytable",
+ "skytable 0.8.6 (git+https://github.com/skytable/client-rust.git)",
  "tokio",
 ]
 
@@ -1345,7 +1345,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "sky_macros",
- "skytable",
+ "skytable 0.8.6 (git+https://github.com/skytable/client-rust.git?branch=feature/pipeline-batch)",
  "tokio",
  "tokio-openssl",
  "uuid",
@@ -1359,7 +1359,23 @@ dependencies = [
  "crossterm",
  "libsky",
  "rustyline",
- "skytable",
+ "skytable 0.8.6 (git+https://github.com/skytable/client-rust.git)",
+]
+
+[[package]]
+name = "skytable"
+version = "0.8.6"
+source = "git+https://github.com/skytable/client-rust.git?branch=feature/pipeline-batch#a279456c548781921cb4aed8cc1bab68c74fb37b"
+dependencies = [
+ "async-trait",
+ "bb8",
+ "itoa",
+ "native-tls",
+ "r2d2",
+ "rand",
+ "sky-derive",
+ "tokio",
+ "tokio-native-tls",
 ]
 
 [[package]]
@@ -1422,9 +1438,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.57"
+version = "2.0.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11a6ae1e52eb25aab8f3fb9fca13be982a373b8f1157ca14b897a825ba4a2d35"
+checksum = "44cfb93f38070beee36b3fef7d4f5a16f27751d94b187b666a5cc5e9b0d30687"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1489,7 +1505,7 @@ checksum = "5b8a1e28f2deaa14e508979454cb3a223b10b938b45af148bc0986de36f1923b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.57",
+ "syn 2.0.58",
 ]
 
 [[package]]
@@ -1569,7 +1585,7 @@ checksum = "9881bea7cbe687e36c9ab3b778c36cd0487402e270304e8b1296d5085303c1a2"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.57",
+ "syn 2.0.58",
 ]
 
 [[package]]
@@ -1611,7 +1627,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.57",
+ "syn 2.0.58",
  "wasm-bindgen-shared",
 ]
 
@@ -1633,7 +1649,7 @@ checksum = "e94f17b526d0a461a191c78ea52bbce64071ed5c04c9ffe424dcb38f74171bb7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.57",
+ "syn 2.0.58",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]

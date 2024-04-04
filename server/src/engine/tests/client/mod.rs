@@ -23,3 +23,57 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  *
 */
+
+use skytable::{
+    query,
+    query::Pipeline,
+    response::{Response, Value},
+};
+
+#[sky_macros::dbtest]
+fn pipe() {
+    let mut db = db!();
+    let mut pipe = Pipeline::new();
+    for _ in 0..100 {
+        pipe.push(&query!("sysctl report status"));
+    }
+    assert_eq!(
+        db.execute_pipeline(&pipe).unwrap(),
+        vec![Response::Empty; 100]
+    );
+}
+
+#[sky_macros::dbtest]
+fn pipe_params() {
+    let mut db = db!();
+    let pipe = Pipeline::new()
+        .add(&query!("create space pipe_params"))
+        .add(&query!(
+            "create model pipe_params.pipe_model(username: string, pipes_per_day: uint64)"
+        ))
+        .add(&query!(
+            "insert into pipe_params.pipe_model(?,?)",
+            "sayan",
+            0u64
+        ))
+        .add(&query!(
+            "select * from pipe_params.pipe_model where username = ?",
+            "sayan"
+        ))
+        .add(&query!("drop space allow not empty pipe_params"));
+    let result = db.execute_pipeline(&pipe).unwrap();
+    assert_eq!(
+        &result[..3],
+        vec![Response::Empty, Response::Empty, Response::Empty]
+    );
+    match &result[3] {
+        Response::Row(r) => {
+            assert_eq!(
+                r.values(),
+                [Value::String("sayan".into()), Value::UInt64(0)]
+            )
+        }
+        unknown => panic!("expected row, got {unknown:?}"),
+    }
+    assert_eq!(result[4], Response::Empty);
+}

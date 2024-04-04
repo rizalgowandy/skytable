@@ -356,7 +356,9 @@ async fn exec_simple<S: Socket>(
 /*
     pipeline
     ---
-    malformed packets
+    notes:
+    - executed without lookahead
+    - hence, malformed packets will need a special escape
 */
 
 const ILLEGAL_PACKET_ESCAPE: u8 = 0xFF;
