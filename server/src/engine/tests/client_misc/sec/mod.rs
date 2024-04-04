@@ -40,6 +40,7 @@ use {
 const INVALID_SYNTAX_ERR: u16 = QueryError::QLInvalidSyntax.value_u8() as u16;
 const EXPECTED_STATEMENT_ERR: u16 = QueryError::QLExpectedStatement.value_u8() as u16;
 const UNKNOWN_STMT_ERR: u16 = QueryError::QLUnknownStatement.value_u8() as u16;
+const ILLEGAL_PACKET: u16 = QueryError::SysNetworkSystemIllegalClientPacket.value_u8() as u16;
 
 #[dbtest]
 fn deny_unknown_tokens() {
@@ -48,11 +49,17 @@ fn deny_unknown_tokens() {
         "model", "space", "where", "force", "into", "from", "with", "set", "add", "remove", "*",
         ",", "",
     ] {
-        assert_err_eq!(
-            db.query_parse::<()>(&query!(token)),
-            Error::ServerError(EXPECTED_STATEMENT_ERR),
-            "{token}",
-        );
+        let result = db.query_parse::<()>(&query!(token));
+        if token.is_empty() {
+            // the server will reject empty queries
+            assert_err_eq!(result, Error::ServerError(ILLEGAL_PACKET), "{token}")
+        } else {
+            assert_err_eq!(
+                result,
+                Error::ServerError(EXPECTED_STATEMENT_ERR),
+                "{token}",
+            );
+        }
     }
 }
 

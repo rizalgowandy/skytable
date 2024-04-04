@@ -64,6 +64,10 @@ impl<'a> SQuery<'a> {
     fn new(buf: &'a [u8], q_window: usize) -> Self {
         Self { buf, q_window }
     }
+    #[cfg(test)]
+    pub(super) fn _new(buf: &'a [u8], q_window: usize) -> Self {
+        Self::new(buf, q_window)
+    }
     pub fn query(&self) -> &[u8] {
         &self.buf[..self.q_window]
     }
@@ -107,7 +111,7 @@ fn scan_usize_guaranteed_termination(
 }
 
 #[derive(Clone, Copy, PartialEq)]
-struct Usize {
+pub(super) struct Usize {
     v: isize,
 }
 
@@ -119,8 +123,12 @@ impl Usize {
         Self { v }
     }
     #[inline(always)]
-    const fn new_unflagged(int: usize) -> Self {
+    pub(super) const fn new_unflagged(int: usize) -> Self {
         Self::new(int as isize)
+    }
+    #[cfg(test)]
+    pub(super) const fn new_flagged(int: usize) -> Self {
+        Self::new(int as isize | Self::MASK)
     }
     #[inline(always)]
     fn int(&self) -> usize {
@@ -198,6 +206,10 @@ pub struct SQState {
 impl SQState {
     const fn new(packet_s: Usize) -> Self {
         Self { packet_s }
+    }
+    #[cfg(test)]
+    pub(super) const fn _new(s: Usize) -> Self {
+        Self::new(s)
     }
 }
 
@@ -288,14 +300,22 @@ impl<'a> Exchange<'a> {
             .map_err(|_| ExchangeError::NotAsciiByteOrOverflow)?;
         if sq_state.packet_s.flag() & self.scanner.has_left(sq_state.packet_s.int()) {
             // we have the full packet size and the required data
+            // scan the query window
+            let start = self.scanner.cursor();
             let q_window = scan_usize_guaranteed_termination(&mut self.scanner)?;
+            let stop = self.scanner.cursor();
+            // now compute remaining buffer length and nonzero condition
+            let expected_remaining_buffer = sq_state.packet_s.int() - (stop - start);
             let nonzero = (q_window != 0) & (sq_state.packet_s.int() != 0);
-            if compiler::likely(self.scanner.remaining_size_is(sq_state.packet_s.int()) & nonzero) {
+            // validate and return
+            if compiler::likely(self.scanner.remaining_size_is(expected_remaining_buffer) & nonzero)
+            {
                 // this check is important because the client might have given us an incorrect q size
-                Ok(ExchangeResult::Simple(SQuery::new(
-                    self.scanner.current_buffer(),
-                    q_window,
-                )))
+                let block = unsafe {
+                    // UNSAFE(@ohsayan): just verified earlier
+                    self.scanner.next_chunk_variable(expected_remaining_buffer)
+                };
+                Ok(ExchangeResult::Simple(SQuery::new(block, q_window)))
             } else {
                 Err(ExchangeError::IncorrectQuerySizeOrMoreBytes)
             }
@@ -311,9 +331,11 @@ impl<'a> Exchange<'a> {
             .map_err(|_| ExchangeError::NotAsciiByteOrOverflow)?;
         if pipe_s.packet_s.flag() & self.scanner.remaining_size_is(pipe_s.packet_s.int()) {
             // great, we have the entire packet
-            Ok(ExchangeResult::Pipeline(Pipeline::new(
-                self.scanner.current_buffer(),
-            )))
+            let block = unsafe {
+                // UNSAFE(@ohsayan): just verified earlier
+                self.scanner.next_chunk_variable(pipe_s.packet_s.int())
+            };
+            Ok(ExchangeResult::Pipeline(Pipeline::new(block)))
         } else {
             Ok(ExchangeResult::NewState(ExchangeState::Pipeline(pipe_s)))
         }
