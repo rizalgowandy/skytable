@@ -53,12 +53,14 @@ use {
         },
     },
     super::{IoResult, QueryLoopResult, Socket},
-    crate::engine::{
-        self,
-        core::system_db::VerifyUser,
-        error::{QueryError, QueryResult},
-        fractal::{Global, GlobalInstanceLike},
-        mem::{BufferedScanner, IntegerRepr},
+    crate::{
+        engine::{
+            core::{exec, system_db::VerifyUser},
+            error::{QueryError, QueryResult},
+            fractal::{Global, GlobalInstanceLike},
+            mem::{BufferedScanner, IntegerRepr},
+        },
+        util::compiler,
     },
     bytes::{Buf, BytesMut},
     tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter},
@@ -348,16 +350,16 @@ async fn exec_simple<S: Socket>(
     global: &Global,
     query: SQuery<'_>,
 ) -> IoResult<()> {
-    write_response(
-        engine::core::exec::dispatch_to_executor(global, cs, query).await,
-        con,
-    )
-    .await
+    write_response(exec::dispatch_to_executor(global, cs, query).await, con).await
 }
 
 /*
     pipeline
+    ---
+    malformed packets
 */
+
+const ILLEGAL_PACKET_ESCAPE: u8 = 0xFF;
 
 async fn exec_pipe<'a, S: Socket>(
     con: &mut BufWriter<S>,
@@ -368,20 +370,10 @@ async fn exec_pipe<'a, S: Socket>(
     let mut pipe = pipe.into_iter();
     while let Some(query) = pipe.next() {
         match query {
-            Ok(q) => {
-                write_response(
-                    engine::core::exec::dispatch_to_executor(global, cs, q).await,
-                    con,
-                )
-                .await?
-            }
+            Ok(q) => write_response(exec::dispatch_to_executor(global, cs, q).await, con).await?,
             Err(_) => {
-                // respond with error
-                let [a, b] = (QueryError::SysNetworkSystemIllegalClientPacket.value_u8() as u16)
-                    .to_le_bytes();
-                con.write_all(&[ResponseType::Error.value_u8(), a, b])
-                    .await?;
-                return Ok(());
+                return compiler::cold_call(|| async { con.write_u8(ILLEGAL_PACKET_ESCAPE).await })
+                    .await
             }
         }
     }

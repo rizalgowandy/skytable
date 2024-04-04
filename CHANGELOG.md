@@ -2,6 +2,12 @@
 
 All changes in this project will be noted in this file.
 
+## Version 0.8.2
+
+### Additions
+
+- Skyhash/2.1: Restored support for pipelines
+
 ## Version 0.8.1
 
 ### Additions
