@@ -363,12 +363,12 @@ async fn exec_pipe<'a, S: Socket>(
     con: &mut BufWriter<S>,
     cs: &mut ClientLocalState,
     global: &Global,
-    mut pipe: Pipeline<'a>,
+    pipe: Pipeline<'a>,
 ) -> IoResult<()> {
-    loop {
-        match pipe.next_query() {
-            Ok(None) => break Ok(()),
-            Ok(Some(q)) => {
+    let mut pipe = pipe.into_iter();
+    while let Some(query) = pipe.next() {
+        match query {
+            Ok(q) => {
                 write_response(
                     engine::core::exec::dispatch_to_executor(global, cs, q).await,
                     con,
@@ -381,8 +381,9 @@ async fn exec_pipe<'a, S: Socket>(
                     .to_le_bytes();
                 con.write_all(&[ResponseType::Error.value_u8(), a, b])
                     .await?;
-                break Ok(());
+                return Ok(());
             }
         }
     }
+    Ok(())
 }

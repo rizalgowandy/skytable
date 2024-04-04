@@ -86,15 +86,15 @@ fn scan_usize_guaranteed_termination(
     let mut ret = 0usize;
     let mut stop = scanner.rounded_eq(b'\n');
     while !scanner.eof() & !stop {
-        let next_byte = unsafe {
+        let this_byte = unsafe {
             // UNSAFE(@ohsayan): loop invariant
             scanner.next_byte()
         };
         match ret
             .checked_mul(10)
-            .map(|int| int.checked_add((next_byte & 0x0f) as usize))
+            .map(|int| int.checked_add((this_byte & 0x0f) as usize))
         {
-            Some(Some(int)) if next_byte.is_ascii_digit() => ret = int,
+            Some(Some(int)) if this_byte.is_ascii_digit() => ret = int,
             _ => return Err(ExchangeError::NotAsciiByteOrOverflow),
         }
         stop = scanner.rounded_eq(b'\n');
@@ -357,22 +357,33 @@ impl<'a> Pipeline<'a> {
             scanner: BufferedScanner::new(buf),
         }
     }
-    pub fn next_query(&mut self) -> Result<Option<SQuery<'a>>, ExchangeError> {
+}
+
+impl<'a> Iterator for Pipeline<'a> {
+    type Item = Result<SQuery<'a>, ExchangeError>;
+    fn next(&mut self) -> Option<Self::Item> {
         let nonzero = self.scanner.buffer_len() != 0;
         if self.scanner.eof() & nonzero {
-            Ok(None)
+            None
         } else {
-            let query_size = scan_usize_guaranteed_termination(&mut self.scanner)?;
-            let param_size = scan_usize_guaranteed_termination(&mut self.scanner)?;
-            let (full_size, overflow) = param_size.overflowing_add(query_size);
-            if compiler::likely(self.scanner.has_left(full_size) & !overflow) {
-                Ok(Some(SQuery {
-                    buf: self.scanner.current_buffer(),
-                    q_window: query_size,
-                }))
-            } else {
-                Err(ExchangeError::IncorrectQuerySizeOrMoreBytes)
-            }
+            let mut ret = || {
+                let query_size = scan_usize_guaranteed_termination(&mut self.scanner)?;
+                let param_size = scan_usize_guaranteed_termination(&mut self.scanner)?;
+                let (full_size, overflow) = param_size.overflowing_add(query_size);
+                if compiler::likely(self.scanner.has_left(full_size) & !overflow) {
+                    let block = unsafe {
+                        // UNSAFE(@ohsayan): checked in above branch
+                        self.scanner.next_chunk_variable(full_size)
+                    };
+                    Ok(SQuery {
+                        buf: block,
+                        q_window: query_size,
+                    })
+                } else {
+                    Err(ExchangeError::IncorrectQuerySizeOrMoreBytes)
+                }
+            };
+            Some(ret())
         }
     }
 }

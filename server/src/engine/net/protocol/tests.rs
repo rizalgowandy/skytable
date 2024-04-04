@@ -363,8 +363,7 @@ impl EQuery {
         /*
             prepare the "back" of the payload
         */
-        let encoded_params: String = params.iter().flat_map(|param| param.chars()).collect();
-        let total_size = query.len() + encoded_params.len();
+        let total_size = query.len() + params.iter().map(|p| p.len()).sum::<usize>();
         let total_size_string = format!("{total_size}\n");
 
         /*
@@ -530,4 +529,68 @@ fn simple_query() {
             }
         })
     }
+}
+
+/*
+    pipeline
+*/
+
+fn pipe_query<const N: usize>(q: &str, p: [&str; N]) -> String {
+    let mut buffer = String::new();
+    buffer.extend(q.len().to_string().chars());
+    buffer.push('\n');
+    buffer.extend(
+        p.iter()
+            .map(|_p| _p.len())
+            .sum::<usize>()
+            .to_string()
+            .chars(),
+    );
+    buffer.push('\n');
+    buffer.extend(q.chars());
+    for p_ in p {
+        buffer.push_str(p_);
+    }
+    buffer
+}
+
+fn pipe<const N: usize>(queries: [String; N]) -> String {
+    let packed_queries = queries.concat();
+    format!("P{}\n{packed_queries}", packed_queries.len())
+}
+
+#[test]
+fn full_pipe_scan() {
+    let pipeline_buffer = pipe([
+        pipe_query("create space myspace", []),
+        pipe_query(
+            "create model myspace.mymodel(username: string, password: string)",
+            [],
+        ),
+        pipe_query("insert into myspace.mymodel(?, ?)", ["sayan", "cake"]),
+    ]);
+    let (pipeline, cursor) = Exchange::try_complete(
+        BufferedScanner::new(pipeline_buffer.as_bytes()),
+        ExchangeState::default(),
+    )
+    .unwrap();
+    assert_eq!(cursor, pipeline_buffer.len());
+    let pipeline: Vec<SQuery<'_>> = match pipeline {
+        ExchangeResult::Pipeline(p) => p.into_iter().map(Result::unwrap).collect(),
+        _ => panic!("expected pipeline got: {:?}", pipeline),
+    };
+    assert_eq!(
+        pipeline,
+        vec![
+            SQuery::_new(b"create space myspace", "create space myspace".len()),
+            SQuery::_new(
+                b"create model myspace.mymodel(username: string, password: string)",
+                "create model myspace.mymodel(username: string, password: string)".len()
+            ),
+            SQuery::_new(
+                b"insert into myspace.mymodel(?, ?)sayancake",
+                "insert into myspace.mymodel(?, ?)".len()
+            )
+        ]
+    );
 }
