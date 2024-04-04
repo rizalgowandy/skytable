@@ -222,6 +222,10 @@ impl PipeState {
     const fn new(packet_s: Usize) -> Self {
         Self { packet_s }
     }
+    #[cfg(test)]
+    pub const fn _new(packet_s: Usize) -> Self {
+        Self::new(packet_s)
+    }
 }
 
 impl Default for ExchangeState {
