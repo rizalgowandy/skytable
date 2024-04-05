@@ -1300,7 +1300,7 @@ dependencies = [
  "libsky",
  "log",
  "num_cpus",
- "skytable 0.8.6 (git+https://github.com/skytable/client-rust.git)",
+ "skytable",
  "tokio",
 ]
 
@@ -1345,7 +1345,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "sky_macros",
- "skytable 0.8.6 (git+https://github.com/skytable/client-rust.git?branch=feature/pipeline-batch)",
+ "skytable",
  "tokio",
  "tokio-openssl",
  "uuid",
@@ -1359,29 +1359,13 @@ dependencies = [
  "crossterm",
  "libsky",
  "rustyline",
- "skytable 0.8.6 (git+https://github.com/skytable/client-rust.git)",
+ "skytable",
 ]
 
 [[package]]
 name = "skytable"
 version = "0.8.6"
-source = "git+https://github.com/skytable/client-rust.git?branch=feature/pipeline-batch#a279456c548781921cb4aed8cc1bab68c74fb37b"
-dependencies = [
- "async-trait",
- "bb8",
- "itoa",
- "native-tls",
- "r2d2",
- "rand",
- "sky-derive",
- "tokio",
- "tokio-native-tls",
-]
-
-[[package]]
-name = "skytable"
-version = "0.8.6"
-source = "git+https://github.com/skytable/client-rust.git#0080df9bddb277eff5f0af704ca0f09aa222b775"
+source = "git+https://github.com/skytable/client-rust.git#21263b5b3875ac185df58475b057c56d35ca5c30"
 dependencies = [
  "async-trait",
  "bb8",

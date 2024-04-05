@@ -74,7 +74,6 @@ fn parse_staged_with_auth() {
                     result,
                     HandshakeResult::ChangeState {
                         new_state: HandshakeState::Initial,
-                        expect: CHandshake::INITIAL_READ
                     }
                 );
             }
@@ -85,7 +84,6 @@ fn parse_staged_with_auth() {
                     result,
                     HandshakeResult::ChangeState {
                         new_state: HandshakeState::StaticBlock(STATIC_HANDSHAKE_WITH_AUTH),
-                        expect: 4
                     }
                 );
             }
@@ -98,7 +96,6 @@ fn parse_staged_with_auth() {
                             uname_l: 5,
                             pwd_l: 8
                         },
-                        expect: 13,
                     }
                 );
             }
@@ -124,15 +121,13 @@ fn run_state_changes_return_rounds(src: &[u8], expected_final_handshake: CHandsh
     let mut rounds = 0;
     let mut state = HandshakeState::default();
     let mut cursor = 0;
-    let mut expect_many = CHandshake::INITIAL_READ;
     loop {
         rounds += 1;
-        let buf = &src[..cursor + expect_many];
+        let buf = &src[..rounds];
         let mut scanner = unsafe { BufferedScanner::new_with_cursor(buf, cursor) };
         match CHandshake::resume_with(&mut scanner, state) {
-            HandshakeResult::ChangeState { new_state, expect } => {
+            HandshakeResult::ChangeState { new_state } => {
                 state = new_state;
-                expect_many = expect;
                 cursor = scanner.cursor();
             }
             HandshakeResult::Completed(hs) => {
@@ -154,7 +149,7 @@ fn parse_auth_with_state_updates() {
             CHandshakeAuth::new(b"sayan", b"pass1234"),
         ),
     );
-    assert_eq!(rounds, 3); // r1 = initial read, r2 = lengths, r3 = items
+    assert_eq!(rounds, FULL_HANDSHAKE_WITH_AUTH.len())
 }
 
 const HS_BAD_PACKET: [u8; 6] = *b"I\x00\0\0\0\0";

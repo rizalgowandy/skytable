@@ -210,12 +210,7 @@ pub enum HandshakeResult<'a> {
     /// Finished handshake
     Completed(CHandshake<'a>),
     /// Update handshake state
-    ///
-    /// **NOTE:** expect does not take into account the current amount of buffered data (hence the unbuffered part must be computed!)
-    ChangeState {
-        new_state: HandshakeState,
-        expect: usize,
-    },
+    ChangeState { new_state: HandshakeState },
     /// An error occurred
     Error(ProtocolError),
 }
@@ -271,17 +266,15 @@ impl<'a> CHandshake<'a> {
     /// Resume from the initial state (nothing buffered yet)
     fn resume_initial(scanner: &mut BufferedScanner<'a>) -> HandshakeResult<'a> {
         // get our block
-        if cfg!(debug_assertions) {
-            if scanner.remaining() < Self::INITIAL_READ {
-                return HandshakeResult::ChangeState {
-                    new_state: HandshakeState::Initial,
-                    expect: Self::INITIAL_READ,
-                };
-            }
-        } else {
-            assert!(scanner.remaining() >= Self::INITIAL_READ);
+        if scanner.remaining() < Self::INITIAL_READ {
+            return HandshakeResult::ChangeState {
+                new_state: HandshakeState::Initial,
+            };
         }
-        let buf: [u8; CHandshake::INITIAL_READ] = unsafe { scanner.next_chunk() };
+        let buf: [u8; CHandshake::INITIAL_READ] = unsafe {
+            // UNSAFE(@ohsayan): validated in earlier branch
+            scanner.next_chunk()
+        };
         let invalid_first_byte = buf[0] != Self::CLIENT_HELLO;
         let invalid_hs_version = buf[1] > HandshakeVersion::MAX_DSCR;
         let invalid_proto_version = buf[2] > ProtocolVersion::MAX_DSCR;
@@ -350,7 +343,6 @@ impl<'a> CHandshake<'a> {
                 uname_l,
                 pwd_l,
             },
-            expect: (uname_l + pwd_l),
         }
     }
 }
@@ -366,7 +358,6 @@ impl<'a> CHandshake<'a> {
             // we need more data
             return HandshakeResult::ChangeState {
                 new_state: HandshakeState::StaticBlock(static_header),
-                expect: static_header.auth_mode.min_payload_bytes(),
             };
         }
         // we seem to have enough data for this auth mode
@@ -379,7 +370,6 @@ impl<'a> CHandshake<'a> {
             ScannerDecodeResult::NeedMore => {
                 return HandshakeResult::ChangeState {
                     new_state: HandshakeState::StaticBlock(static_header),
-                    expect: AuthMode::Password.min_payload_bytes(), // 2 for uname_l and 2 for pwd_l
                 };
             }
             ScannerDecodeResult::Value(v) => v as usize,
@@ -402,7 +392,6 @@ impl<'a> CHandshake<'a> {
                 // newline missing (or maybe there's more?)
                 return HandshakeResult::ChangeState {
                     new_state: HandshakeState::ExpectingMetaForVariableBlock { static_hs, uname_l },
-                    expect: uname_l + 2, // space for username + password len
                 };
             }
             ScannerDecodeResult::Error => {

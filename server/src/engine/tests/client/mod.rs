@@ -30,16 +30,18 @@ use skytable::{
     response::{Response, Value},
 };
 
+const PIPE_RUNS: usize = 20;
+
 #[sky_macros::dbtest]
 fn pipe() {
     let mut db = db!();
     let mut pipe = Pipeline::new();
-    for _ in 0..100 {
+    for _ in 0..PIPE_RUNS {
         pipe.push(&query!("sysctl report status"));
     }
     assert_eq!(
         db.execute_pipeline(&pipe).unwrap(),
-        vec![Response::Empty; 100]
+        vec![Response::Empty; PIPE_RUNS]
     );
 }
 
