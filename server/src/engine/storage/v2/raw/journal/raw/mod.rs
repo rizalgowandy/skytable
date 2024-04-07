@@ -35,6 +35,7 @@ use {
             mem::unsafe_apis::memcpy,
             storage::common::{
                 checksum::SCrc64,
+                interface::fs::FileWriteExt,
                 sdss::sdss_r1::{
                     rw::{SdssFile, TrackedReader, TrackedWriter},
                     FileSpecV1,
@@ -519,7 +520,9 @@ pub(super) enum DriverEventKind {
     Journal writer implementation
     ---
     Quick notes:
-    - This is a low level writer and only handles driver events. Higher level impls must account for
+    - This is a low level writer and only handles driver events
+    - Checksum verification is only performed for meta events
+    - Implementors must handle checksums themselves
 
     +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 */
@@ -622,18 +625,20 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
     {
         self.commit_with_ctx(event, Default::default())
     }
-    /// WARNING: ONLY CALL AFTER A FAILURE EVENT. THIS WILL EMPTY THE UNFLUSHED BUFFER
-    pub fn __lwt_heartbeat(&mut self) -> RuntimeResult<()> {
-        // verify that the on disk cursor is the same as what we know
+    pub fn __rollback(&mut self) -> RuntimeResult<()> {
+        // ensure cursors are in sync, even if out of position
         self.log_file.verify_cursor()?;
-        if self.log_file.cursor() == self.known_txn_offset {
-            // great, so if there was something in the buffer, simply ignore it
-            self.log_file.__zero_buffer();
-            Ok(())
-        } else {
-            // so, the on-disk file probably has some partial state. this is bad. throw an error
-            Err(StorageError::RawJournalRuntimeHeartbeatFail.into())
+        // reverse
+        self.log_file.inner_mut(|file| {
+            file.f_truncate(self.known_txn_offset)?;
+            Ok(self.known_txn_offset)
+        })?;
+        // reverse successful, now empty write buffer
+        unsafe {
+            // UNSAFE(@ohsayan): since the log has been reversed, whatever we failed to write should simply be ignored
+            self.log_file.drain_buffer();
         }
+        Ok(())
     }
 }
 
@@ -643,12 +648,12 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
         f: impl FnOnce(&mut Self, u128) -> RuntimeResult<T>,
     ) -> RuntimeResult<T> {
         let id = self.txn_id;
-        self.txn_id += 1;
         let ret = f(self, id as u128);
         if ret.is_ok() {
             jtrace_event_offset!(id, self.log_file.cursor());
             self.known_txn_id = id;
             self.known_txn_offset = self.log_file.cursor();
+            self.txn_id += 1;
         }
         ret
     }

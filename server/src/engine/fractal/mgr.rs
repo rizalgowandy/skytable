@@ -115,7 +115,7 @@ pub enum CriticalTask {
     /// Write a new data batch
     WriteBatch(ModelUniqueID, usize),
     /// try recovering model ID
-    TryModelAutorecoverLWT(ModelUniqueID),
+    TryModelAutorecover(ModelUniqueID),
     CheckGNSDriver,
 }
 
@@ -323,13 +323,7 @@ impl FractalMgr {
         match task {
             CriticalTask::CheckGNSDriver => {
                 info!("trying to autorecover GNS driver");
-                match global
-                    .state()
-                    .gns_driver()
-                    .txn_driver
-                    .lock()
-                    .__lwt_heartbeat()
-                {
+                match global.state().gns_driver().txn_driver.lock().__rollback() {
                     Ok(()) => {
                         info!("GNS driver has been successfully auto-recovered");
                         global.state().gns_driver().status().set_okay();
@@ -343,7 +337,7 @@ impl FractalMgr {
                     }
                 }
             }
-            CriticalTask::TryModelAutorecoverLWT(mdl_id) => {
+            CriticalTask::TryModelAutorecover(mdl_id) => {
                 info!("trying to autorecover model {mdl_id}");
                 match global
                     .state()
@@ -355,7 +349,7 @@ impl FractalMgr {
                     Some(mdl) if mdl.data().get_uuid() == mdl_id.uuid() => {
                         let mut drv = mdl.driver().batch_driver().lock();
                         let drv = drv.as_mut().unwrap();
-                        match drv.__lwt_heartbeat() {
+                        match drv.__rollback() {
                             Ok(()) => {
                                 mdl.driver().status().set_okay();
                                 global.health().report_recovery();
@@ -364,7 +358,7 @@ impl FractalMgr {
                             Err(e) => {
                                 error!("failed to autorecover {mdl_id} with {e}. will try again");
                                 self.hp_dispatcher
-                                    .send(Task::new(CriticalTask::TryModelAutorecoverLWT(mdl_id)))
+                                    .send(Task::new(CriticalTask::TryModelAutorecover(mdl_id)))
                                     .unwrap()
                             }
                         }
@@ -548,9 +542,7 @@ impl FractalMgr {
             .map_err(|e| {
                 mdl_driver_.status().set_iffy();
                 self.hp_dispatcher
-                    .send(Task::new(CriticalTask::TryModelAutorecoverLWT(
-                        mdl_id.into(),
-                    )))
+                    .send(Task::new(CriticalTask::TryModelAutorecover(mdl_id.into())))
                     .unwrap();
                 (e, BatchStats::into_inner(batch_stats))
             })
