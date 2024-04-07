@@ -29,9 +29,13 @@ use {
     crate::{
         engine::{
             error::ErrorKind,
+            fractal,
             storage::{
                 common::{
-                    interface::fs::{File, FileExt, FileSystem, FileWrite, FileWriteExt},
+                    interface::{
+                        fs::{File, FileExt, FileSystem, FileWrite, FileWriteExt},
+                        vfs_utils,
+                    },
                     sdss::sdss_r1::FileSpecV1,
                 },
                 v2::raw::journal::{
@@ -1492,6 +1496,121 @@ fn midway_corruption_at_runtime() {
                 _ => panic!(),
             }
             let (_, _) = (debug_get_trace(), debug_get_offsets());
+        },
+    )
+}
+
+/*
+    rollback tests
+*/
+
+/// Steps:
+/// 1. A new log is created
+/// 2. Events and corruptions are introduced
+/// 3. Rolled back
+/// 4. Closed
+/// 5. Re-opened
+fn emulate_failure_for_rollback(
+    journal_id: &str,
+    action: impl Fn(&mut SimpleDB, &mut RawJournalWriter<SimpleDBJournal>) -> RuntimeResult<()>,
+    verify_error: impl Fn(fractal::error::Error),
+    post_rollback: impl Fn(&SimpleDB),
+) {
+    {
+        let mut db = SimpleDB::new();
+        let mut jrnl = create_journal::<SimpleDBJournal>(journal_id).unwrap();
+        let err = action(&mut db, &mut jrnl).unwrap_err();
+        verify_error(err);
+        jrnl.__rollback().unwrap();
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+    }
+    {
+        let db = SimpleDB::new();
+        let mut jrnl = open_journal::<SimpleDBJournal>(journal_id, &db, JournalSettings::default())
+            .expect(&format!("{:#?}", debug_get_trace()));
+        post_rollback(&db);
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+    }
+}
+
+#[test]
+fn rollback_write_zero_empty_log() {
+    emulate_failure_for_rollback(
+        "rollback_empty_log_write_zero",
+        |db, jrnl| {
+            vfs_utils::debug_enable_zero_write_crash();
+            let r = db.push(jrnl, "hello, world");
+            vfs_utils::debug_disable_write_crash();
+            r
+        },
+        |e| match e.kind() {
+            ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+            unexpected => panic!("expected write zero, got {unexpected:?}"),
+        },
+        |db| assert_eq!(db.data().len(), 0),
+    );
+}
+
+#[test]
+fn rollback_write_zero_nonempty_log() {
+    emulate_failure_for_rollback(
+        "rollback_write_zero_nonempty_log",
+        |db, jrnl| {
+            // commit a single "good" event
+            db.push(jrnl, "my good key")?;
+            vfs_utils::debug_enable_zero_write_crash();
+            let r = db.push(jrnl, "this won't go in");
+            vfs_utils::debug_disable_write_crash();
+            r
+        },
+        |e| match e.kind() {
+            ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+            unexpected => panic!("expected write zero, got {unexpected:?}"),
+        },
+        |db| {
+            assert_eq!(db.data().len(), 1);
+            assert_eq!(db.data()[0], "my good key")
+        },
+    )
+}
+
+#[test]
+fn rollback_random_write_failure_empty_log() {
+    emulate_failure_for_rollback(
+        "rollback_random_write_failure_empty_log",
+        |db, jrnl| {
+            vfs_utils::debug_enable_random_write_crash();
+            let r = db.push(jrnl, "hello, world");
+            vfs_utils::debug_disable_write_crash();
+            r
+        },
+        |e| match e.kind() {
+            ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+            unexpected => panic!("expected write zero, got {unexpected:?}"),
+        },
+        |db| assert_eq!(db.data().len(), 0),
+    );
+}
+
+#[test]
+fn rollback_random_write_failure_log() {
+    emulate_failure_for_rollback(
+        "rollback_random_write_failure_log",
+        |db, jrnl| {
+            // commit a single "good" event
+            db.push(jrnl, "my good key")?;
+            vfs_utils::debug_enable_random_write_crash();
+            let r = db.push(jrnl, "this won't go in");
+            vfs_utils::debug_disable_write_crash();
+            r
+        },
+        |e| match e.kind() {
+            ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+            unexpected => panic!("expected write zero, got {unexpected:?}"),
+        },
+        |db| {
+            assert_eq!(db.data().len(), 1);
+            assert_eq!(db.data()[0], "my good key")
         },
     )
 }

@@ -25,7 +25,7 @@
 */
 
 use {
-    crate::{engine::sync::cell::Lazy, IoResult},
+    crate::{engine::sync::cell::Lazy, util::test_utils, IoResult},
     parking_lot::RwLock,
     std::{
         collections::{
@@ -40,6 +40,33 @@ use {
     virtual fs impl
     ---
 */
+
+pub mod vfs_utils {
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub(super) enum WriteCrashKind {
+        None,
+        Zero,
+        Random,
+    }
+    local!(
+        static RANDOM_WRITE_CRASH: WriteCrashKind = WriteCrashKind::None;
+    );
+    /// WARNING: A random write crash automatically degrades to a [`WriteCrashKind::Zero`] as soon as it completes
+    /// to prevent any further data writes (due to retries in
+    /// [`fs::FileWrite::fwrite_all_count`](super::super::fs::FileWrite::fwrite_all_count))
+    pub fn debug_enable_random_write_crash() {
+        local_mut!(RANDOM_WRITE_CRASH, |crash| *crash = WriteCrashKind::Random)
+    }
+    pub fn debug_enable_zero_write_crash() {
+        local_mut!(RANDOM_WRITE_CRASH, |crash| *crash = WriteCrashKind::Zero)
+    }
+    pub fn debug_disable_write_crash() {
+        local_mut!(RANDOM_WRITE_CRASH, |crash| *crash = WriteCrashKind::None)
+    }
+    pub(super) fn debug_write_crash_setting() -> WriteCrashKind {
+        local_ref!(RANDOM_WRITE_CRASH, |crash| *crash)
+    }
+}
 
 /*
     definitions
@@ -167,12 +194,32 @@ impl VFile {
         if !self.write {
             return Err(Error::new(ErrorKind::PermissionDenied, "Write permission denied").into());
         }
-        if self.pos + bytes.len() > self.data.len() {
-            self.data.resize(self.pos + bytes.len(), 0);
+        match vfs_utils::debug_write_crash_setting() {
+            vfs_utils::WriteCrashKind::None => {
+                if self.pos + bytes.len() > self.data.len() {
+                    self.data.resize(self.pos + bytes.len(), 0);
+                }
+                self.data[self.pos..self.pos + bytes.len()].copy_from_slice(bytes);
+                self.pos += bytes.len();
+                Ok(bytes.len() as _)
+            }
+            vfs_utils::WriteCrashKind::Random => {
+                // write some random part of the buffer into this file
+                let mut rng = rand::thread_rng();
+                let actual_write_length = test_utils::random_number(0, bytes.len(), &mut rng);
+                if self.pos + actual_write_length > self.data.len() {
+                    self.data.resize(self.pos + actual_write_length, 0);
+                }
+                self.data[self.pos..self.pos + actual_write_length]
+                    .copy_from_slice(&bytes[..actual_write_length]);
+                self.pos += actual_write_length;
+                // now soon as this is complete, downgrade error type to writezero so that we don't write any further data during
+                // a retry
+                vfs_utils::debug_enable_zero_write_crash();
+                Ok(actual_write_length as _)
+            }
+            vfs_utils::WriteCrashKind::Zero => Ok(0),
         }
-        self.data[self.pos..self.pos + bytes.len()].copy_from_slice(bytes);
-        self.pos += bytes.len();
-        Ok(bytes.len() as _)
     }
 }
 

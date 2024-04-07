@@ -163,6 +163,11 @@ pub fn debug_set_offset_tracking(track: bool) {
     local_mut!(TRACE_OFFSETS, |track_| *track_ = track)
 }
 
+#[cfg(test)]
+pub fn debug_get_first_meta_triplet() -> Option<(u64, u64, u64)> {
+    local_mut!(FIRST_TRIPLET, |tr| core::mem::take(tr))
+}
+
 #[derive(Debug, PartialEq)]
 #[cfg(test)]
 pub enum JournalTraceEvent {
@@ -230,6 +235,7 @@ local! {
     static TRACE: Vec<JournalTraceEvent> = Vec::new();
     static OFFSETS: std::collections::BTreeMap<u64, u64> = Default::default();
     static TRACE_OFFSETS: bool = false;
+    static FIRST_TRIPLET: Option<(u64, u64, u64)> = None;
 }
 
 macro_rules! jtrace_event_offset {
@@ -630,8 +636,14 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
         self.log_file.verify_cursor()?;
         // reverse
         self.log_file.inner_mut(|file| {
-            file.f_truncate(self.known_txn_offset)?;
-            Ok(self.known_txn_offset)
+            let new_offset = if self.txn_id == 0 {
+                debug_assert_eq!(self.known_txn_offset, 0);
+                <<J as RawJournalAdapter>::Spec as FileSpecV1>::SIZE as u64
+            } else {
+                self.known_txn_offset
+            };
+            file.f_truncate(new_offset)?;
+            Ok(new_offset)
         })?;
         // reverse successful, now empty write buffer
         unsafe {
@@ -647,6 +659,16 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
         &mut self,
         f: impl FnOnce(&mut Self, u128) -> RuntimeResult<T>,
     ) -> RuntimeResult<T> {
+        #[cfg(test)]
+        if local_ref!(FIRST_TRIPLET, |tr| { tr.is_none() }) {
+            local_mut!(FIRST_TRIPLET, |tr| {
+                *tr = Some((
+                    self.known_txn_id,
+                    self.known_txn_offset,
+                    self.log_file.current_checksum(),
+                ));
+            })
+        }
         let id = self.txn_id;
         let ret = f(self, id as u128);
         if ret.is_ok() {
@@ -864,7 +886,6 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
             },
             ErrorKind::Storage(e) => match e {
                 // unreachable errors (no execution path here)
-                StorageError::RawJournalRuntimeHeartbeatFail            // can't reach runtime error before driver start
                 | StorageError::RawJournalRuntimeDirty
                 | StorageError::FileDecodeHeaderVersionMismatch         // should be caught earlier
                 | StorageError::FileDecodeHeaderCorrupted               // should be caught earlier
@@ -1035,6 +1056,11 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
         jtrace_reader!(DriverEventExpectedCloseGotClose);
         // a driver closed event; we've checked integrity, but we must check the field values
         let valid_meta = okay! {
+            /*
+                basically:
+                - if this is a new journal all these values are 0 (we're essentially reading the first event)
+                - otherwise, it is the last event offset
+            */
             self.last_txn_checksum == drv_close_event.last_checksum,
             self.last_txn_id == drv_close_event.last_txn_id,
             self.last_txn_offset == drv_close_event.last_offset,

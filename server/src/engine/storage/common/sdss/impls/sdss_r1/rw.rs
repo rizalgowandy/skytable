@@ -447,8 +447,10 @@ impl<
         match self.f_d.fwrite_all_count(buf) {
             (cnt, r) => {
                 self.t_cursor += cnt;
-                if r.is_err() && CHECKSUM_WRITTEN_IF_BLOCK_ERROR {
-                    self.t_checksum.update(&buf[..cnt as usize]);
+                if r.is_err() {
+                    if CHECKSUM_WRITTEN_IF_BLOCK_ERROR {
+                        self.t_checksum.update(&buf[..cnt as usize]);
+                    }
                 } else {
                     self.t_checksum.update(buf);
                 }
