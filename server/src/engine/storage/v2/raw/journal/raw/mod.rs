@@ -631,6 +631,10 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
     {
         self.commit_with_ctx(event, Default::default())
     }
+    /// roll back to the last txn
+    /// WARNING: only call on failure
+    /// 
+    /// NB: Idempotency is guaranteed. Will rollback to, and only to the last event
     pub fn __rollback(&mut self) -> RuntimeResult<()> {
         // ensure cursors are in sync, even if out of position
         self.log_file.verify_cursor()?;
