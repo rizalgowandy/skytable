@@ -1531,6 +1531,7 @@ fn emulate_failure_for_rollback(
         post_rollback(&db);
         RawJournalWriter::close_driver(&mut jrnl).unwrap();
     }
+    FileSystem::remove_file(journal_id).unwrap();
 }
 
 #[test]
@@ -1576,41 +1577,45 @@ fn rollback_write_zero_nonempty_log() {
 
 #[test]
 fn rollback_random_write_failure_empty_log() {
-    emulate_failure_for_rollback(
-        "rollback_random_write_failure_empty_log",
-        |db, jrnl| {
-            vfs_utils::debug_enable_random_write_crash();
-            let r = db.push(jrnl, "hello, world");
-            vfs_utils::debug_disable_write_crash();
-            r
-        },
-        |e| match e.kind() {
-            ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
-            unexpected => panic!("expected write zero, got {unexpected:?}"),
-        },
-        |db| assert_eq!(db.data().len(), 0),
-    );
+    for _ in 0..100 {
+        emulate_failure_for_rollback(
+            "rollback_random_write_failure_empty_log",
+            |db, jrnl| {
+                vfs_utils::debug_enable_random_write_crash();
+                let r = db.push(jrnl, "hello, world");
+                vfs_utils::debug_disable_write_crash();
+                r
+            },
+            |e| match e.kind() {
+                ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+                unexpected => panic!("expected write zero, got {unexpected:?}"),
+            },
+            |db| assert_eq!(db.data().len(), 0),
+        );
+    }
 }
 
 #[test]
 fn rollback_random_write_failure_log() {
-    emulate_failure_for_rollback(
-        "rollback_random_write_failure_log",
-        |db, jrnl| {
-            // commit a single "good" event
-            db.push(jrnl, "my good key")?;
-            vfs_utils::debug_enable_random_write_crash();
-            let r = db.push(jrnl, "this won't go in");
-            vfs_utils::debug_disable_write_crash();
-            r
-        },
-        |e| match e.kind() {
-            ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
-            unexpected => panic!("expected write zero, got {unexpected:?}"),
-        },
-        |db| {
-            assert_eq!(db.data().len(), 1);
-            assert_eq!(db.data()[0], "my good key")
-        },
-    )
+    for _ in 0..100 {
+        emulate_failure_for_rollback(
+            "rollback_random_write_failure_log",
+            |db, jrnl| {
+                // commit a single "good" event
+                db.push(jrnl, "my good key")?;
+                vfs_utils::debug_enable_random_write_crash();
+                let r = db.push(jrnl, "this won't go in");
+                vfs_utils::debug_disable_write_crash();
+                r
+            },
+            |e| match e.kind() {
+                ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+                unexpected => panic!("expected write zero, got {unexpected:?}"),
+            },
+            |db| {
+                assert_eq!(db.data().len(), 1);
+                assert_eq!(db.data()[0], "my good key")
+            },
+        )
+    }
 }

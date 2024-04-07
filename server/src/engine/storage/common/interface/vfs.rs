@@ -50,6 +50,7 @@ pub mod vfs_utils {
     }
     local!(
         static RANDOM_WRITE_CRASH: WriteCrashKind = WriteCrashKind::None;
+        pub(super) static RNG: Option<rand::rngs::ThreadRng> = None;
     );
     /// WARNING: A random write crash automatically degrades to a [`WriteCrashKind::Zero`] as soon as it completes
     /// to prevent any further data writes (due to retries in
@@ -204,9 +205,18 @@ impl VFile {
                 Ok(bytes.len() as _)
             }
             vfs_utils::WriteCrashKind::Random => {
+                let actual_write_length = local_mut!(vfs_utils::RNG, |rng| {
+                    match rng {
+                        Some(ref mut rng) => test_utils::random_number(0, bytes.len(), rng),
+                        None => {
+                            let mut rng_ = rand::thread_rng();
+                            let r = test_utils::random_number(0, bytes.len(), &mut rng_);
+                            *rng = Some(rng_);
+                            r
+                        }
+                    }
+                });
                 // write some random part of the buffer into this file
-                let mut rng = rand::thread_rng();
-                let actual_write_length = test_utils::random_number(0, bytes.len(), &mut rng);
                 if self.pos + actual_write_length > self.data.len() {
                     self.data.resize(self.pos + actual_write_length, 0);
                 }
