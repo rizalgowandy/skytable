@@ -192,6 +192,7 @@ pub trait FileWrite {
                     )
                 }
                 Ok(n) => written += n,
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
                 Err(e) => return (written, Err(e)),
             }
         }

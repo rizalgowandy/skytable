@@ -6,7 +6,8 @@ All changes in this project will be noted in this file.
 
 ### Additions
 
-- Skyhash/2.1: Restored support for pipelines
+- Skyhash/2: Restored support for pipelines
+- Enable online (runtime) recovery of transactional failures due to disk errors
 
 ## Version 0.8.1
 

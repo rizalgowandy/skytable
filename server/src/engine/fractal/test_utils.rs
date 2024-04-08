@@ -133,7 +133,7 @@ impl GlobalInstanceLike for TestGlobal {
                     .commit_with_ctx(StdModelBatch::new(mdl.data(), count), BatchStats::new())
                     .unwrap()
             }
-            CriticalTask::TryModelAutorecoverLWT(_) => {}
+            CriticalTask::TryModelAutorecover(_) => {}
             CriticalTask::CheckGNSDriver => {}
         }
     }

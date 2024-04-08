@@ -29,8 +29,8 @@ mod recovery;
 
 use {
     super::{
-        CommitPreference, DriverEvent, DriverEventKind, JournalInitializer, RawJournalAdapter,
-        RawJournalAdapterEvent, RawJournalWriter,
+        create_journal, CommitPreference, DriverEvent, DriverEventKind, JournalInitializer,
+        RawJournalAdapter, RawJournalAdapterEvent, RawJournalWriter,
     },
     crate::engine::{
         error::StorageError,
@@ -215,4 +215,49 @@ fn encode_decode_meta() {
     let encoded1 = dv1.encode_self();
     let decoded1 = DriverEvent::decode(encoded1).unwrap();
     assert_eq!(dv1, decoded1);
+}
+
+#[test]
+fn first_triplet_sanity() {
+    // first driver event
+    {
+        assert_eq!(
+            super::debug_get_first_meta_triplet(),
+            None,
+            "failed for first driver event"
+        );
+        let mut jrnl = create_journal::<SimpleDBJournal>("first_triplet_sanity_drv_event").unwrap();
+        assert_eq!(
+            super::debug_get_first_meta_triplet(),
+            None,
+            "failed for first driver event"
+        );
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+        assert_eq!(
+            super::debug_get_first_meta_triplet(),
+            Some((0, 0, 0)),
+            "failed for first driver event"
+        );
+    }
+    // first server event
+    {
+        assert_eq!(
+            super::debug_get_first_meta_triplet(),
+            None,
+            "failed for first server event"
+        );
+        let mut jrnl =
+            create_journal::<SimpleDBJournal>("first_triplet_sanity_server_event").unwrap();
+        assert_eq!(
+            super::debug_get_first_meta_triplet(),
+            None,
+            "failed for first server event"
+        );
+        SimpleDB::new().push(&mut jrnl, "hello").unwrap();
+        assert_eq!(
+            super::debug_get_first_meta_triplet(),
+            Some((0, 0, 0)),
+            "failed for first driver event"
+        );
+    }
 }

@@ -29,9 +29,13 @@ use {
     crate::{
         engine::{
             error::ErrorKind,
+            fractal,
             storage::{
                 common::{
-                    interface::fs::{File, FileExt, FileSystem, FileWrite, FileWriteExt},
+                    interface::{
+                        fs::{File, FileExt, FileSystem, FileWrite, FileWriteExt},
+                        vfs_utils,
+                    },
                     sdss::sdss_r1::FileSpecV1,
                 },
                 v2::raw::journal::{
@@ -135,6 +139,17 @@ fn make_corrupted_file_name(journal_id: &str, trim_size: usize) -> String {
     format!("{journal_id}-trimmed-{trim_size}.db")
 }
 
+fn journal_init(journal_id: &str) -> RuntimeResult<RawJournalWriter<SimpleDBJournal>> {
+    create_journal(journal_id)
+}
+
+fn journal_open(
+    journal_id: &str,
+    db: &SimpleDB,
+) -> RuntimeResult<RawJournalWriter<SimpleDBJournal>> {
+    open_journal(journal_id, db, JournalSettings::default())
+}
+
 #[derive(Debug)]
 /// Information about the layout of the modified journal
 struct ModifiedJournalStorageInfo {
@@ -213,13 +228,7 @@ fn emulate_sequentially_varying_single_corruption(
         for trim_size in 1..=last_event_size {
             // create a copy of the "good" journal and corrupt it
             let corrupted_journal_path = make_corrupted_file_name(journal_id, trim_size);
-            let open_journal_fn = |db: &SimpleDB| {
-                open_journal::<SimpleDBJournal>(
-                    &corrupted_journal_path,
-                    db,
-                    JournalSettings::default(),
-                )
-            };
+            let open_journal_fn = |db: &SimpleDB| journal_open(&corrupted_journal_path, db);
             // modify journal
             let storage_info = modified_journal_generator_fn(
                 journal_id,
@@ -408,7 +417,7 @@ fn corruption_before_close() {
             */
             "close_event_corruption_empty.db",
             |jrnl_id| {
-                let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                let mut jrnl = journal_init(jrnl_id)?;
                 RawJournalWriter::close_driver(&mut jrnl)?;
                 Ok(InitializerInfo::new_last_event(0))
             },
@@ -419,7 +428,7 @@ fn corruption_before_close() {
             */
             "close_event_corruption.db",
             |jrnl_id| {
-                let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                let mut jrnl = journal_init(jrnl_id)?;
                 let operation_count = apply_event_mix(&mut jrnl)?;
                 RawJournalWriter::close_driver(&mut jrnl)?;
                 Ok(InitializerInfo::new_last_event(operation_count))
@@ -432,15 +441,11 @@ fn corruption_before_close() {
             "close_event_corruption_open_close_open_close.db",
             |jrnl_id| {
                 // open and close
-                let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                let mut jrnl = journal_init(jrnl_id)?;
                 RawJournalWriter::close_driver(&mut jrnl)?;
                 drop(jrnl);
                 // reinit and close
-                let mut jrnl = open_journal::<SimpleDBJournal>(
-                    jrnl_id,
-                    &SimpleDB::new(),
-                    JournalSettings::default(),
-                )?;
+                let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?;
                 RawJournalWriter::close_driver(&mut jrnl)?;
                 Ok(InitializerInfo::new_last_event(2))
             },
@@ -603,15 +608,11 @@ fn corruption_after_reopen() {
             */
             "corruption_after_reopen.db",
             |jrnl_id| {
-                let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                let mut jrnl = journal_init(jrnl_id)?;
                 RawJournalWriter::close_driver(&mut jrnl)?;
                 drop(jrnl);
                 // reopen, but don't close
-                open_journal::<SimpleDBJournal>(
-                    jrnl_id,
-                    &SimpleDB::new(),
-                    JournalSettings::default(),
-                )?;
+                journal_open(jrnl_id, &SimpleDB::new())?;
                 Ok(InitializerInfo::new_last_event(1))
             },
         ),
@@ -621,16 +622,12 @@ fn corruption_after_reopen() {
             */
             "corruption_after_ropen_multi_before_close.db",
             |jrnl_id| {
-                let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                let mut jrnl = journal_init(jrnl_id)?;
                 let operation_count = apply_event_mix(&mut jrnl)?;
                 RawJournalWriter::close_driver(&mut jrnl)?;
                 drop(jrnl);
                 // reopen, but don't close
-                open_journal::<SimpleDBJournal>(
-                    jrnl_id,
-                    &SimpleDB::new(),
-                    JournalSettings::default(),
-                )?;
+                journal_open(jrnl_id, &SimpleDB::new())?;
                 Ok(InitializerInfo::new_last_event(operation_count + 1)) // + 1 since we have the reopen event which is the next event that'll vanish
             },
         ),
@@ -1007,15 +1004,11 @@ fn midway_corruption_close() {
                 we emulate a sequential corruption case for (0)
             */
             // create and close
-            let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+            let mut jrnl = journal_init(jrnl_id)?;
             RawJournalWriter::close_driver(&mut jrnl)?;
             drop(jrnl);
             // reopen and close
-            let mut jrnl = open_journal::<SimpleDBJournal>(
-                jrnl_id,
-                &SimpleDB::new(),
-                JournalSettings::default(),
-            )?;
+            let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?;
             RawJournalWriter::close_driver(&mut jrnl)?;
             drop(jrnl);
             Ok(InitializerInfo::new(0, 2)) // close (to corrupt), reopen, close
@@ -1032,27 +1025,19 @@ fn midway_corruption_close() {
             |jrnl_id| {
                 {
                     // create and close
-                    let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                    let mut jrnl = journal_init(jrnl_id)?;
                     RawJournalWriter::close_driver(&mut jrnl)?; // (0)
                 }
                 let op_cnt;
                 {
                     // reopen, apply mix and close
-                    let mut jrnl = open_journal::<SimpleDBJournal>(
-                        jrnl_id,
-                        &SimpleDB::new(),
-                        JournalSettings::default(),
-                    )?; // (1)
+                    let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?; // (1)
                     op_cnt = apply_event_mix(&mut jrnl)?;
                     RawJournalWriter::close_driver(&mut jrnl)?; // <-- (op_cnt + 2) corrupt this one
                 }
                 {
                     // reopen and close
-                    let mut jrnl = open_journal::<SimpleDBJournal>(
-                        jrnl_id,
-                        &SimpleDB::new(),
-                        JournalSettings::default(),
-                    )?; // (op_cnt + 3)
+                    let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?; // (op_cnt + 3)
                     RawJournalWriter::close_driver(&mut jrnl)?; // (op_cnt + 4)
                 }
                 Ok(InitializerInfo::new(op_cnt + 2, op_cnt + 4))
@@ -1071,25 +1056,17 @@ fn midway_corruption_close() {
             |jrnl_id| {
                 {
                     // create and close
-                    let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                    let mut jrnl = journal_init(jrnl_id)?;
                     RawJournalWriter::close_driver(&mut jrnl)?; // (0)
                 }
                 {
                     // reopen and close
-                    let mut jrnl = open_journal::<SimpleDBJournal>(
-                        jrnl_id,
-                        &SimpleDB::new(),
-                        JournalSettings::default(),
-                    )?; // (1)
+                    let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?; // (1)
                     RawJournalWriter::close_driver(&mut jrnl)?; // <-- (2) corrupt this one
                 }
                 let op_cnt;
                 {
-                    let mut jrnl = open_journal::<SimpleDBJournal>(
-                        jrnl_id,
-                        &SimpleDB::new(),
-                        JournalSettings::default(),
-                    )?; // (3)
+                    let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?; // (3)
                     op_cnt = apply_event_mix(&mut jrnl)?; // (3 + op_count)
                     RawJournalWriter::close_driver(&mut jrnl)?; // (4 + op_count)
                 }
@@ -1199,15 +1176,11 @@ fn midway_corruption_reopen() {
                     journal. we emulate a midway corruption where the reopen (1) gets corrupted.
                 */
                 {
-                    let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                    let mut jrnl = journal_init(jrnl_id)?;
                     RawJournalWriter::close_driver(&mut jrnl)?; // (0)
                 }
                 {
-                    let mut jrnl = open_journal::<SimpleDBJournal>(
-                        jrnl_id,
-                        &SimpleDB::new(),
-                        JournalSettings::default(),
-                    )?; // (1) <-- corrupt
+                    let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?; // (1) <-- corrupt
                     RawJournalWriter::close_driver(&mut jrnl)?; // (2)
                 }
                 Ok(InitializerInfo::new(1, 2))
@@ -1222,16 +1195,12 @@ fn midway_corruption_reopen() {
             |jrnl_id| {
                 let op_count;
                 {
-                    let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                    let mut jrnl = journal_init(jrnl_id)?;
                     op_count = apply_event_mix(&mut jrnl)?;
                     RawJournalWriter::close_driver(&mut jrnl)?;
                 }
                 {
-                    let mut jrnl = open_journal::<SimpleDBJournal>(
-                        jrnl_id,
-                        &SimpleDB::new(),
-                        JournalSettings::default(),
-                    )?;
+                    let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?;
                     RawJournalWriter::close_driver(&mut jrnl)?;
                 }
                 Ok(InitializerInfo::new((op_count + 1) as u64, 102))
@@ -1245,15 +1214,11 @@ fn midway_corruption_reopen() {
             "midway_corruption_reopen_apply_post_corrupted_reopen",
             |jrnl_id| {
                 {
-                    let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                    let mut jrnl = journal_init(jrnl_id)?;
                     RawJournalWriter::close_driver(&mut jrnl)?;
                 }
                 {
-                    let mut jrnl = open_journal::<SimpleDBJournal>(
-                        jrnl_id,
-                        &SimpleDB::new(),
-                        JournalSettings::default(),
-                    )?; // <-- corrupt this one
+                    let mut jrnl = journal_open(jrnl_id, &SimpleDB::new())?; // <-- corrupt this one
                     let _ = apply_event_mix(&mut jrnl)?; // apply mix
                     RawJournalWriter::close_driver(&mut jrnl)?;
                 }
@@ -1363,7 +1328,7 @@ fn midway_corruption_at_runtime() {
             */
             "midway_corruption_at_runtime_open_server_event_close",
             |jrnl_id| {
-                let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                let mut jrnl = journal_init(jrnl_id)?;
                 SimpleDB::new().push(&mut jrnl, KEY)?;
                 RawJournalWriter::close_driver(&mut jrnl)?;
                 Ok(InitializerInfo::new(0, 1))
@@ -1376,7 +1341,7 @@ fn midway_corruption_at_runtime() {
             */
             "midway_corruption_at_runtime_open_multiserver_event_then_close_corrupt_last",
             |jrnl_id| {
-                let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                let mut jrnl = journal_init(jrnl_id)?;
                 let mut sdb = SimpleDB::new();
                 for num in 1..=TRIALS {
                     sdb.push(&mut jrnl, keyfmt(num))?;
@@ -1392,7 +1357,7 @@ fn midway_corruption_at_runtime() {
             */
             "midway_corruption_at_runtime_open_multiserver_event_then_close_corrupt_first",
             |jrnl_id| {
-                let mut jrnl = create_journal::<SimpleDBJournal>(jrnl_id)?;
+                let mut jrnl = journal_init(jrnl_id)?;
                 let mut sdb = SimpleDB::new();
                 for num in 1..=TRIALS {
                     sdb.push(&mut jrnl, keyfmt(num))?;
@@ -1494,4 +1459,126 @@ fn midway_corruption_at_runtime() {
             let (_, _) = (debug_get_trace(), debug_get_offsets());
         },
     )
+}
+
+/*
+    rollback tests
+*/
+
+/// Steps:
+/// 1. A new log is created
+/// 2. Events and corruptions are introduced
+/// 3. Rolled back
+/// 4. Closed
+/// 5. Re-opened
+fn emulate_failure_for_rollback(
+    journal_id: &str,
+    action: impl Fn(&mut SimpleDB, &mut RawJournalWriter<SimpleDBJournal>) -> RuntimeResult<()>,
+    verify_error: impl Fn(fractal::error::Error),
+    post_rollback: impl Fn(&SimpleDB),
+) {
+    {
+        let mut db = SimpleDB::new();
+        let mut jrnl = create_journal::<SimpleDBJournal>(journal_id).unwrap();
+        let err = action(&mut db, &mut jrnl).unwrap_err();
+        verify_error(err);
+        for _ in 0..1000 {
+            // idempotency guarantee: no matter how many times this is called, the underlying state will rollback to, and only to the last event
+            jrnl.__rollback().unwrap();
+        }
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+    }
+    {
+        let db = SimpleDB::new();
+        let mut jrnl = journal_open(journal_id, &db).expect(&format!("{:#?}", debug_get_trace()));
+        post_rollback(&db);
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+    }
+    FileSystem::remove_file(journal_id).unwrap();
+}
+
+#[test]
+fn rollback_write_zero_empty_log() {
+    emulate_failure_for_rollback(
+        "rollback_empty_log_write_zero",
+        |db, jrnl| {
+            vfs_utils::debug_enable_zero_write_crash();
+            let r = db.push(jrnl, "hello, world");
+            vfs_utils::debug_disable_write_crash();
+            r
+        },
+        |e| match e.kind() {
+            ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+            unexpected => panic!("expected write zero, got {unexpected:?}"),
+        },
+        |db| assert_eq!(db.data().len(), 0),
+    );
+}
+
+#[test]
+fn rollback_write_zero_nonempty_log() {
+    emulate_failure_for_rollback(
+        "rollback_write_zero_nonempty_log",
+        |db, jrnl| {
+            // commit a single "good" event
+            db.push(jrnl, "my good key")?;
+            vfs_utils::debug_enable_zero_write_crash();
+            let r = db.push(jrnl, "this won't go in");
+            vfs_utils::debug_disable_write_crash();
+            r
+        },
+        |e| match e.kind() {
+            ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+            unexpected => panic!("expected write zero, got {unexpected:?}"),
+        },
+        |db| {
+            assert_eq!(db.data().len(), 1);
+            assert_eq!(db.data()[0], "my good key")
+        },
+    )
+}
+
+#[test]
+fn rollback_random_write_failure_empty_log() {
+    for _ in 0..100 {
+        emulate_failure_for_rollback(
+            "rollback_random_write_failure_empty_log",
+            |db, jrnl| {
+                vfs_utils::debug_enable_random_write_crash();
+                let r = db.push(jrnl, "hello, world");
+                vfs_utils::debug_disable_write_crash();
+                r
+            },
+            |e| match e.kind() {
+                ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+                unexpected => panic!("expected write zero, got {unexpected:?}"),
+            },
+            |db| assert_eq!(db.data().len(), 0),
+        );
+    }
+}
+
+#[test]
+fn rollback_random_write_failure_log() {
+    for _ in 0..100 {
+        emulate_failure_for_rollback(
+            "rollback_random_write_failure_log",
+            |db, jrnl| {
+                // commit a single "good" event
+                db.push(jrnl, "my good key")?;
+                vfs_utils::debug_enable_random_write_crash();
+                let r = db.push(jrnl, "this won't go in");
+                vfs_utils::debug_disable_write_crash();
+                r
+            },
+            |e| match e.kind() {
+                ErrorKind::IoError(io) if io.kind() == IoErrorKind::WriteZero => {}
+                unexpected => panic!("expected write zero, got {unexpected:?}"),
+            },
+            |db| {
+                assert_eq!(db.data().len(), 1);
+                assert_eq!(db.data()[0], "my good key")
+            },
+        )
+    }
 }

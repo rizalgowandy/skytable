@@ -33,3 +33,5 @@
 pub mod fs;
 #[cfg(test)]
 mod vfs;
+#[cfg(test)]
+pub use vfs::vfs_utils;

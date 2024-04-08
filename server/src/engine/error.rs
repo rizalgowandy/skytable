@@ -251,7 +251,6 @@ enumerate_err! {
             runtime errors
             ----
         */
-        RawJournalRuntimeHeartbeatFail = "journal-lwt-heartbeat-failed",
         RawJournalRuntimeDirty = "journal-in-dirty-state",
     }
 }

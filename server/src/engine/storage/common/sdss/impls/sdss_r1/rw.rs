@@ -297,7 +297,7 @@ pub struct TrackedWriter<
     S: FileSpecV1,
     const SIZE: usize = 8192,
     const PANIC_IF_UNFLUSHED: bool = true,
-    const CHECKSUM_WRITTEN_IF_BLOCK_ERROR: bool = true,
+    const CHECKSUM_WRITTEN_IF_BLOCK_ERROR: bool = false,
 > {
     f_d: File,
     f_md: S::Metadata,
@@ -417,6 +417,12 @@ impl<
     pub fn current_checksum(&self) -> u64 {
         self.t_checksum.clone().finish()
     }
+    pub fn inner_mut(&mut self, f: impl Fn(&mut File) -> IoResult<u64>) -> IoResult<()> {
+        let file = &mut self.f_d;
+        let new_cursor = f(file)?;
+        self.t_cursor = new_cursor;
+        Ok(())
+    }
 }
 
 impl<
@@ -491,7 +497,13 @@ impl<
             return Ok(());
         }
         self.flush_buf()?;
-        // write whatever capacity exceeds the buffer size
+        /*
+            write whatever capacity exceeds the buffer size
+            [a,b,c,d,e,f]
+            problem: but we can only hold two items
+            so write to disk: [a,b]
+            store in memory: [c,d,e,f]
+        */
         let to_write_cnt = buf.len().saturating_sub(SIZE);
         match self.f_d.fwrite_all_count(&buf[..to_write_cnt]) {
             (cnt, r) => {
@@ -537,6 +549,12 @@ impl<
     }
     pub fn fsync(&mut self) -> IoResult<()> {
         self.f_d.fsync_all()
+    }
+    /// Empty the write buffer
+    ///
+    /// DANGER: This means that whatever data was in the buffer will be immediately discarded
+    pub unsafe fn drain_buffer(&mut self) {
+        self.buf.clear()
     }
 }
 

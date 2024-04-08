@@ -401,7 +401,7 @@ macro_rules! local {
 }
 
 macro_rules! local_mut {
-    ($ident:ident, $call:expr) => {{
+    ($ident:expr, $call:expr) => {{
         #[inline(always)]
         fn _f<T, U>(v: &::std::cell::RefCell<T>, f: impl FnOnce(&mut T) -> U) -> U {
             f(&mut *v.borrow_mut())
