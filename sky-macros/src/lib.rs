@@ -45,9 +45,9 @@
 
 use {
     proc_macro::TokenStream,
-    proc_macro2::TokenStream as TokenStream2,
+    proc_macro2::{Ident, TokenStream as TokenStream2},
     quote::quote,
-    syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields, Meta, NestedMeta},
+    syn::{parse_macro_input, Data, DataStruct, DeriveInput, Expr, Fields, Meta, NestedMeta},
 };
 
 mod dbtest;
@@ -105,7 +105,8 @@ fn wrapper(item: DeriveInput) -> TokenStream2 {
 #[proc_macro_derive(TaggedEnum)]
 pub fn derive_tagged_enum(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
-    let (enum_name, _, value_expressions, variant_len, repr_type_ident) = process_enum_tags(&ast);
+    let (enum_name, _, value_expressions, variant_len, repr_type_ident, _) =
+        process_enum_tags(&ast);
     quote! {
         impl crate::util::compiler::TaggedEnum for #enum_name {
             type Dscr = #repr_type_ident;
@@ -141,13 +142,22 @@ pub fn derive_tagged_enum(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(EnumMethods)]
 pub fn derive_value_methods(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
-    let (enum_name, repr_type, _, _, repr_type_ident) = process_enum_tags(&ast);
+    let (enum_name, repr_type, _, variant_len, repr_type_ident, variants) = process_enum_tags(&ast);
     let repr_type_ident_func = syn::Ident::new(
         &format!("value_{repr_type}"),
         proc_macro2::Span::call_site(),
     );
+    let mut decls = quote! {};
+    for (variant, _) in variants {
+        decls = quote! {
+            #decls
+            #enum_name::#variant,
+        };
+    }
+    let variants_array = quote! { [#decls] };
     let gen = quote! {
         impl #enum_name {
+            pub const VARIANTS: [Self; #variant_len] = #variants_array;
             pub const fn #repr_type_ident_func(&self) -> #repr_type_ident { unsafe { core::mem::transmute(*self) } }
             pub const fn value_word(&self) -> usize { self.#repr_type_ident_func() as usize }
             pub const fn value_qword(&self) -> u64 { self.#repr_type_ident_func() as u64 }
@@ -164,6 +174,7 @@ fn process_enum_tags(
     TokenStream2,
     usize,
     proc_macro2::Ident,
+    Vec<(Ident, Expr)>,
 ) {
     let enum_name = &ast.ident;
     let mut repr_type = None;
@@ -178,7 +189,7 @@ fn process_enum_tags(
         }
     }
     let repr_type = repr_type.expect("Must have repr(u8) or repr(u16) etc.");
-    let mut dscr_expressions = vec![];
+    let mut variant_exprs = vec![];
     // Ensure all variants have explicit discriminants
     if let Data::Enum(data) = &ast.data {
         for variant in &data.variants {
@@ -188,7 +199,7 @@ fn process_enum_tags(
                         .discriminant
                         .as_ref()
                         .expect("All enum variants must have explicit discriminants");
-                    dscr_expressions.push(dscr_expr.clone());
+                    variant_exprs.push((variant.ident.clone(), dscr_expr.clone()));
                 }
                 _ => panic!("All enum variants must be unit variants"),
             }
@@ -196,14 +207,12 @@ fn process_enum_tags(
     } else {
         panic!("This derive macro only works on enums");
     }
-    assert!(
-        !dscr_expressions.is_empty(),
-        "must be a non-empty enumeration"
-    );
+    assert!(!variant_exprs.is_empty(), "must be a non-empty enumeration");
+    let val_exprs = variant_exprs.iter().map(|(_, vexp)| vexp);
     let value_expressions = quote! {
-        [#(#dscr_expressions),*]
+        [#(#val_exprs),*]
     };
-    let variant_len = dscr_expressions.len();
+    let variant_len = variant_exprs.len();
     let repr_type_ident = syn::Ident::new(&repr_type, proc_macro2::Span::call_site());
     (
         enum_name,
@@ -211,5 +220,6 @@ fn process_enum_tags(
         value_expressions,
         variant_len,
         repr_type_ident,
+        variant_exprs,
     )
 }

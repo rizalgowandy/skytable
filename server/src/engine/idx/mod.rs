@@ -166,7 +166,7 @@ pub trait MTIndex<E, K, V>: IndexBaseSpec {
     where
         V: AsValue;
     /// Updates or inserts the given value
-    fn mt_upsert(&self, e: E, g: &Guard)
+    fn mt_upsert(&self, e: E, g: &Guard) -> bool
     where
         V: AsValue;
     // read

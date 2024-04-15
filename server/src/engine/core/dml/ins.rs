@@ -65,6 +65,31 @@ pub fn insert(global: &impl GlobalInstanceLike, insert: InsertStatement) -> Quer
     })
 }
 
+pub fn upsert(global: &impl GlobalInstanceLike, insert: InsertStatement) -> QueryResult<bool> {
+    let mut ret = false;
+    core::with_model_for_data_update(global, insert.entity(), |mdl| {
+        let (pk, data) = prepare_insert(mdl, insert.data())?;
+        let _idx_latch = mdl.primary_index().acquire_cd();
+        let g = cpin();
+        let ds = mdl.delta_state();
+        // create new version
+        let new_version = ds.create_new_data_delta_version();
+        let row = Row::new(pk, data, ds.schema_current_version(), new_version);
+        ret = mdl.primary_index().__raw_index().mt_upsert(row.clone(), &g);
+        // append delta for new version
+        let dp = ds.append_new_data_delta_with(DataDeltaKind::Upsert, row, new_version, &g);
+        Ok(QueryExecMeta::new(dp))
+    })
+    .map(|_| ret)
+}
+
+pub fn upsert_resp(
+    global: &impl GlobalInstanceLike,
+    insert: InsertStatement,
+) -> QueryResult<Response> {
+    self::upsert(global, insert).map(Response::Bool)
+}
+
 // TODO(@ohsayan): optimize null case
 fn prepare_insert(
     model: &ModelData,

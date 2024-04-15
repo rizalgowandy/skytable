@@ -101,6 +101,7 @@ pub enum EventType {
     Update = 2,
     /// owing to inconsistent reads, we exited early
     EarlyExit = 3,
+    Upsert = 4,
 }
 
 /*
@@ -270,7 +271,7 @@ impl<'a, 'b> BatchWriter<'a, 'b> {
                     .write_row_metadata(delta.change(), delta.data_version())?;
                 self.row_writer.write_row_pk(delta.row().d_key())?;
             }
-            DataDeltaKind::Insert | DataDeltaKind::Update => {
+            DataDeltaKind::Insert | DataDeltaKind::Update | DataDeltaKind::Upsert => {
                 // resolve deltas (this is yet another opportunity for us to reclaim memory from deleted items)
                 let row_data = delta
                     .row()
@@ -387,6 +388,7 @@ enum DecodedBatchEventKind {
     Delete,
     Insert(Vec<Datacell>),
     Update(Vec<Datacell>),
+    Upsert(Vec<Datacell>),
 }
 
 /// State handling for any pending queries
@@ -481,7 +483,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
                     DecodedBatchEventKind::Delete,
                 ));
             }
-            EventType::Insert | EventType::Update => {
+            EventType::Insert | EventType::Update | EventType::Upsert => {
                 // insert or update
                 // prepare row
                 let row = restore_impls::decode_row_data(batch_info, f)?;
@@ -492,11 +494,19 @@ impl BatchAdapterSpec for ModelDataAdapter {
                         DecodedBatchEventKind::Insert(row),
                     ));
                 } else {
-                    bs.events.push(DecodedBatchEvent::new(
-                        txn_id,
-                        pk,
-                        DecodedBatchEventKind::Update(row),
-                    ));
+                    if event_type == EventType::Upsert {
+                        bs.events.push(DecodedBatchEvent::new(
+                            txn_id,
+                            pk,
+                            DecodedBatchEventKind::Upsert(row),
+                        ));
+                    } else {
+                        bs.events.push(DecodedBatchEvent::new(
+                            txn_id,
+                            pk,
+                            DecodedBatchEventKind::Update(row),
+                        ));
+                    }
                 }
             }
             EventType::EarlyExit => unreachable!(),
@@ -518,13 +528,17 @@ impl BatchAdapterSpec for ModelDataAdapter {
         let mut real_last_txn_id = DeltaVersion::genesis();
         for DecodedBatchEvent { txn_id, pk, kind } in batch_state.events {
             match kind {
-                DecodedBatchEventKind::Insert(new_row) | DecodedBatchEventKind::Update(new_row) => {
+                DecodedBatchEventKind::Insert(new_row)
+                | DecodedBatchEventKind::Update(new_row)
+                | DecodedBatchEventKind::Upsert(new_row) => {
                     let popped_row = p_index.mt_delete_return(&pk, &g);
                     if let Some(row) = popped_row {
                         /*
                             if a newer version of the row is received first and the older version is pending to be synced, the older
                             version is never synced. this is how the diffing algorithm works to ensure consistency.
-                            the delta diff algorithm statically guarantees this.
+                            the delta diff algorithm statically guarantees this. insert(s),update(s) and upsert(s) are all essentially
+                            "new versions" of rows and as such, the only thing we need to do is remove the older row (which is guranteed
+                            to be "old") and replace it with the newer row.
                         */
                         let row_txn_revised = row.read().get_txn_revised();
                         assert!(
@@ -572,12 +586,12 @@ impl BatchAdapterSpec for ModelDataAdapter {
                         HMEntry::Occupied(mut existing_delete) => {
                             if *existing_delete.get() > txn_id {
                                 /*
-                                    this is a "newer delete" and it takes precedence. basically the same key was
+                                    the existing delete is a "newer delete" and it takes precedence. basically the same key was
                                     deleted by two txns but they were only synced much later, and out of order.
                                 */
                                 continue;
                             }
-                            // the existing delete happened before our delete, so our delete takes precedence
+                            // the existing delete "is older" than the current delete, so our delete takes precedence
                             // we have a newer delete for the same key
                             *existing_delete.get_mut() = txn_id;
                         }

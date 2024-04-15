@@ -250,7 +250,10 @@ fn run_nb(
         &Global,
         &mut ClientLocalState,
         &mut State<'static, InplaceData>,
-    ) -> QueryResult<Response>; 9] = [
+    ) -> QueryResult<Response>; {
+        // +SELECT ALL
+        KeywordStmt::NONBLOCKING_COUNT + 1
+    }] = [
         cstate_use, // use
         |g, c, s| _callgcs(g, c, s, ddl_misc::inspect),
         |_, _, _| Err(QueryError::QLUnknownStatement), // describe
@@ -258,13 +261,15 @@ fn run_nb(
         |g, _, s| _callgs(g, s, dml::select_resp),
         |g, _, s| _callgs(g, s, dml::update_resp),
         |g, _, s| _callgs(g, s, dml::delete_resp),
+        |g, _, s| _callgs(g, s, dml::upsert_resp),
         |_, _, _| Err(QueryError::QLUnknownStatement), // exists
         |g, _, s| _callgs(g, s, dml::select_all_resp),
     ];
     {
         let n_offset_adjust = (stmt == KeywordStmt::Select) & state.cursor_rounded_eq(Token![all]);
         state.cursor_ahead_if(n_offset_adjust);
-        let corrected_offset = (n_offset_adjust as u8 * 8) | (stmt_c * (!n_offset_adjust as u8));
+        let corrected_offset =
+            (n_offset_adjust as u8 * F.len() as u8) | (stmt_c * (!n_offset_adjust as u8));
         let mut state = unsafe {
             // UNSAFE(@ohsayan): this is a lifetime issue with the token handle
             core::mem::transmute(state)

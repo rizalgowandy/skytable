@@ -235,4 +235,5 @@ pub enum DataDeltaKind {
     Delete = 0,
     Insert = 1,
     Update = 2,
+    Upsert = 3,
 }

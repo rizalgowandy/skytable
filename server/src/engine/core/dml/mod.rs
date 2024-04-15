@@ -48,7 +48,7 @@ pub use {
 };
 pub use {
     del::delete_resp,
-    ins::insert_resp,
+    ins::{insert_resp, upsert_resp},
     sel::{select_all_resp, select_resp},
     upd::update_resp,
 };

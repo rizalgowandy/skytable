@@ -85,7 +85,7 @@ impl<T: TreeElement> PatchWrite<T> for VanillaInsert<T> {
 pub struct VanillaUpsert<T: TreeElement>(pub T);
 impl<T: TreeElement> PatchWrite<T> for VanillaUpsert<T> {
     const WMODE: WriteFlag = WRITEMODE_ANY;
-    type Ret<'a> = ();
+    type Ret<'a> = bool;
     type Target = T::Key;
     fn target<'a>(&'a self) -> &Self::Target {
         self.0.key()
@@ -94,12 +94,16 @@ impl<T: TreeElement> PatchWrite<T> for VanillaUpsert<T> {
     fn nx_new(&mut self) -> T {
         self.0.clone()
     }
-    fn nx_ret<'a>() -> Self::Ret<'a> {}
+    fn nx_ret<'a>() -> Self::Ret<'a> {
+        false
+    }
     // ex
     fn ex_apply(&mut self, _: &T) -> T {
         self.0.clone()
     }
-    fn ex_ret<'a>(_: &'a T) -> Self::Ret<'a> {}
+    fn ex_ret<'a>(_: &'a T) -> Self::Ret<'a> {
+        true
+    }
 }
 
 pub struct VanillaUpsertRet<T: TreeElement>(pub T);
