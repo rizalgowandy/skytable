@@ -8,11 +8,18 @@ All changes in this project will be noted in this file.
 
 - Skyhash/2: Restored support for pipelines
 - Enable online (runtime) recovery of transactional failures due to disk errors
+- Added BlueQL shorthands:
+  - `INSERT`: `INS`
+  - `SELECT`: `SEL`
+  - `UPDATE`: `UPD`
+  - `DELETE`: `DEL`
+- Added new `UPSERT` (shorthand: `UPS`) query
 
 ### Fixes
 
 - Fixed an issue where an incorrect handshake with multiple errors cause the client connection
   to be terminated without yielding an error
+- Fixed SE bug that resulted in unsafe cleanup of journals when multiple failures occur in sequence
 
 ## Version 0.8.1
 

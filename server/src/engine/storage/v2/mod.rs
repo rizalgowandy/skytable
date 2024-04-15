@@ -54,7 +54,7 @@ use {
         },
         util,
     },
-    impls::mdl_journal::ModelDriver,
+    impls::{gns_log::GNSDriver, mdl_journal::ModelDriver},
 };
 
 pub(super) mod impls;
@@ -130,40 +130,66 @@ pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
     let gns = GNSData::empty();
     context::set_dmsg("loading gns");
     let mut gns_driver = impls::gns_log::GNSDriver::open_gns(&gns, JournalSettings::default())?;
-    for (id, model) in gns.idx_models().write().iter_mut() {
-        let model_data = model.data();
-        let space_uuid = gns.idx().read().get(id.space()).unwrap().get_uuid();
-        let model_data_file_path =
-            paths_v1::model_path(id.space(), space_uuid, id.entity(), model_data.get_uuid());
-        context::set_dmsg(format!("loading model driver in {model_data_file_path}"));
-        let model_driver = impls::mdl_journal::ModelDriver::open_model_driver(
-            model_data,
-            &model_data_file_path,
-            JournalSettings::default(),
-        )?;
-        model.driver().initialize_model_driver(model_driver);
-        unsafe {
-            // UNSAFE(@ohsayan): all pieces of data are upgraded by now, so vacuum
-            model.data_mut().model_mutator().vacuum_stashed();
+    let mut initialize_drivers = || {
+        for (id, model) in gns.idx_models().write().iter_mut() {
+            let model_data = model.data();
+            let space_uuid = gns.idx().read().get(id.space()).unwrap().get_uuid();
+            let model_data_file_path =
+                paths_v1::model_path(id.space(), space_uuid, id.entity(), model_data.get_uuid());
+            context::set_dmsg(format!("loading model driver in {model_data_file_path}"));
+            let model_driver = impls::mdl_journal::ModelDriver::open_model_driver(
+                model_data,
+                &model_data_file_path,
+                JournalSettings::default(),
+            )?;
+            model.driver().initialize_model_driver(model_driver);
+            unsafe {
+                // UNSAFE(@ohsayan): all pieces of data are upgraded by now, so vacuum
+                model.data_mut().model_mutator().vacuum_stashed();
+            }
+        }
+        // check if password has changed
+        if gns
+            .sys_db()
+            .verify_user(SystemDatabase::ROOT_ACCOUNT, cfg.auth.root_key.as_bytes())
+            == VerifyUser::IncorrectPassword
+        {
+            // the password was changed
+            warn!("root password changed via configuration");
+            context::set_dmsg("updating password to system database from configuration");
+            let phash = rcrypt::hash(&cfg.auth.root_key, rcrypt::DEFAULT_COST).unwrap();
+            gns_driver.commit_event(AlterUserTxn::new(SystemDatabase::ROOT_ACCOUNT, &phash))?;
+            gns.sys_db()
+                .__raw_alter_user(SystemDatabase::ROOT_ACCOUNT, phash.into_boxed_slice());
+        }
+        RuntimeResult::Ok(())
+    };
+    match initialize_drivers() {
+        Ok(()) => Ok(SELoaded {
+            gns: GlobalNS::new(gns, FractalGNSDriver::new(gns_driver)),
+        }),
+        Err(e) => {
+            error!("failed to load all storage drivers and/or data");
+            info!("safely shutting down loaded drivers");
+            for (id, model) in gns.idx_models().read().iter() {
+                let mut batch_driver = model.driver().batch_driver().lock();
+                let Some(mdl_driver) = batch_driver.as_mut() else {
+                    continue;
+                };
+                if let Err(e) = ModelDriver::close_driver(mdl_driver) {
+                    error!(
+                        "failed to close model driver {}:{} due to error: {e}",
+                        id.space(),
+                        id.entity()
+                    );
+                }
+            }
+            if let Err(e) = GNSDriver::close_driver(&mut gns_driver) {
+                error!("failed to close GNS driver due to error: {e}");
+            }
+            Err(e)
         }
     }
-    // check if password has changed
-    if gns
-        .sys_db()
-        .verify_user(SystemDatabase::ROOT_ACCOUNT, cfg.auth.root_key.as_bytes())
-        == VerifyUser::IncorrectPassword
-    {
-        // the password was changed
-        warn!("root password changed via configuration");
-        context::set_dmsg("updating password to system database from configuration");
-        let phash = rcrypt::hash(&cfg.auth.root_key, rcrypt::DEFAULT_COST).unwrap();
-        gns_driver.commit_event(AlterUserTxn::new(SystemDatabase::ROOT_ACCOUNT, &phash))?;
-        gns.sys_db()
-            .__raw_alter_user(SystemDatabase::ROOT_ACCOUNT, phash.into_boxed_slice());
-    }
-    Ok(SELoaded {
-        gns: GlobalNS::new(gns, FractalGNSDriver::new(gns_driver)),
-    })
 }
 
 pub fn repair() -> RuntimeResult<()> {
