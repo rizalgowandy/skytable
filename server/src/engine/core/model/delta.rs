@@ -235,5 +235,9 @@ pub enum DataDeltaKind {
     Delete = 0,
     Insert = 1,
     Update = 2,
-    Upsert = 3,
+    /*
+        HACK(@ohsayan): I was daft enough to map (hardcode) an `EarlyExit` event (skewed read) to OPC 3 in the SE.
+        Hence, we have no choice but to map this to 4
+    */
+    Upsert = 4,
 }

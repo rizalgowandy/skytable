@@ -143,12 +143,13 @@ impl<'b> RowWriter<'b> {
         change: DataDeltaKind,
         txn_id: DeltaVersion,
     ) -> RuntimeResult<()> {
-        if cfg!(debug) {
+        if cfg!(debug_assertions) {
             let event_kind = EventType::try_from_raw(change.value_u8()).unwrap();
             match (event_kind, change) {
                 (EventType::Delete, DataDeltaKind::Delete)
                 | (EventType::Insert, DataDeltaKind::Insert)
-                | (EventType::Update, DataDeltaKind::Update) => {}
+                | (EventType::Update, DataDeltaKind::Update)
+                | (EventType::Upsert, DataDeltaKind::Upsert) => {}
                 (EventType::EarlyExit, _) => unreachable!(),
                 _ => panic!(),
             }
@@ -384,6 +385,7 @@ pub struct BatchMetadata {
     column_count: u64,
 }
 
+#[derive(Debug)]
 enum DecodedBatchEventKind {
     Delete,
     Insert(Vec<Datacell>),
@@ -396,6 +398,7 @@ pub struct BatchRestoreState {
     events: Vec<DecodedBatchEvent>,
 }
 
+#[derive(Debug)]
 struct DecodedBatchEvent {
     txn_id: DeltaVersion,
     pk: PrimaryIndexKey,

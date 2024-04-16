@@ -262,3 +262,11 @@ macro_rules! exit_fatal {
         $crate::util::exit_error()
     }};
 }
+
+#[cfg(test)]
+macro_rules! decl {
+    ($(let $array:ident: [$type:ty] = [$($expr:expr),* $(,)?]);* $(;)?) => {
+        $(mod $array { pub const SIZE: usize = { let mut i = 0; $(let _ = stringify!($expr); i += 1;)* i += 0; i }; }
+        let $array: [$type; $array::SIZE] = [$($expr),*];)*
+    }
+}
