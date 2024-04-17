@@ -114,7 +114,8 @@ fn run_test_inner() -> HarnessResult<()> {
     append_target(&mut standard_test_suite_args);
     // get cmd
     let build_cmd = util::assemble_command_from_slice(build_cmd_args);
-    let standard_test_suite = util::assemble_command_from_slice(standard_test_suite_args);
+    let mut standard_test_suite = util::assemble_command_from_slice(standard_test_suite_args);
+    standard_test_suite.env("RUST_MIN_STACK", "16777216");
 
     // build skyd
     info!("Building server binary ...");

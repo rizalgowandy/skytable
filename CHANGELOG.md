@@ -22,6 +22,10 @@ All changes in this project will be noted in this file.
 - Fixed SE bug that resulted in unsafe cleanup of journals when multiple failures occur in sequence
 - Fixed SE memory management bug in delta diff algorithm: In rare cases, a crash might occur on startup (*only during startup* and *not* at runtime)
 
+### Platform notes
+
+- 32-bit Windows (MSVC) has been downgraded to a Tier-2 platform and will likely be deprecated in the future
+
 ## Version 0.8.1
 
 ### Additions

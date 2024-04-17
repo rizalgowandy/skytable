@@ -283,6 +283,7 @@ fn model_data_inserts() {
 }
 
 #[test]
+#[cfg(not(all(target_os = "windows", target_pointer_width = "32")))]
 fn model_data_updates() {
     run_sample_updates(
         "model_data_updates_variable_key",
