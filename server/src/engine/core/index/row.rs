@@ -56,6 +56,10 @@ pub struct RowData {
 }
 
 impl RowData {
+    #[cfg(test)]
+    pub fn get_schema_version(&self) -> DeltaVersion {
+        self.txn_revised_schema_version
+    }
     pub fn fields(&self) -> &DcFieldIndex {
         &self.fields
     }

@@ -33,7 +33,7 @@ use {
         engine::{data::cell::Datacell, error::QueryResult},
         util::test_utils,
     },
-    rand::{self, Rng},
+    rand::Rng,
 };
 
 mod dcl;

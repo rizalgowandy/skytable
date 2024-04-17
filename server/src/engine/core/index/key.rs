@@ -49,29 +49,6 @@ pub struct PrimaryIndexKey {
     data: SpecialPaddedWord,
 }
 
-impl Clone for PrimaryIndexKey {
-    fn clone(&self) -> Self {
-        match self.tag {
-            TagUnique::SignedInt | TagUnique::UnsignedInt => {
-                let (qw, nw) = self.data.dwordqn_load_qw_nw();
-                unsafe {
-                    let slice = slice::from_raw_parts(nw as *const u8, qw as _);
-                    let mut data = ManuallyDrop::new(slice.to_owned().into_boxed_slice());
-                    Self {
-                        tag: self.tag,
-                        data: SpecialPaddedWord::new(qw, data.as_mut_ptr() as usize),
-                    }
-                }
-            }
-            TagUnique::Bin | TagUnique::Str => Self {
-                tag: self.tag,
-                data: unsafe { core::mem::transmute_copy(&self.data) },
-            },
-            _ => unreachable!(),
-        }
-    }
-}
-
 impl PrimaryIndexKey {
     pub fn tag(&self) -> TagUnique {
         self.tag
@@ -145,13 +122,18 @@ impl PrimaryIndexKey {
         if cfg!(debug_assertions) && tag < TagUnique::Bin {
             assert_eq!(b, mem::ZERO_BLOCK.as_ptr() as usize);
         }
-        Self {
+        let me = Self {
             tag,
             data: unsafe {
                 // UNSAFE(@ohsayan): loaded above, writing here
                 SpecialPaddedWord::new(a, b)
             },
+        };
+        if cfg!(debug_assertions) {
+            let vblk = me.virtual_block();
+            assert_eq!(vblk.as_ptr() as usize, b);
         }
+        me
     }
     /// Create a new quadword based primary key
     pub unsafe fn new_from_qw(tag: TagUnique, qw: u64) -> Self {
@@ -394,4 +376,41 @@ fn empty_slice() {
     assert_eq!(pk2, Lit::new_str(""));
     assert_eq!(pk2, pk2_);
     drop((pk2, pk2_));
+}
+
+#[test]
+fn ensure_ptr_offsets() {
+    let data = String::from("hello").into_boxed_str();
+    let __orig = (data.as_ptr(), data.len());
+    // dc
+    let dc = Datacell::new_str(data);
+    assert_eq!(__orig, (dc.str().as_ptr(), dc.str().len()));
+    // pk
+    let pk = PrimaryIndexKey::try_from_dc(dc).unwrap();
+    assert_eq!(
+        __orig,
+        (pk.str().unwrap().as_ptr(), pk.str().unwrap().len())
+    );
+}
+
+#[test]
+fn queue_ensure_offsets() {
+    use crate::engine::sync::queue::Queue;
+    let data: Vec<_> = (0..100)
+        .map(|_| "hello".to_owned().into_boxed_str())
+        .collect();
+    let __orig: Vec<_> = data.iter().map(|s| (s.as_ptr(), s.len())).collect();
+    let q = Queue::new();
+    for datum in data {
+        q.blocking_enqueue(
+            PrimaryIndexKey::try_from_dc(Datacell::new_str(datum)).unwrap(),
+            &crossbeam_epoch::pin(),
+        );
+    }
+    let mut __reloaded = vec![];
+    while let Some(key) = q.blocking_try_dequeue(&crossbeam_epoch::pin()) {
+        let pk_str = key.str().unwrap();
+        __reloaded.push((pk_str.as_ptr(), pk_str.len()));
+    }
+    assert_eq!(__orig, __reloaded);
 }

@@ -524,7 +524,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
         /*
             go over each change in this batch, resolve conflicts and then apply to global state
         */
-        let g = unsafe { crossbeam_epoch::unprotected() };
+        let g = crossbeam_epoch::pin();
         let mut pending_delete = HashMap::new();
         let p_index = gs.primary_index().__raw_index();
         let m = gs;
@@ -534,22 +534,37 @@ impl BatchAdapterSpec for ModelDataAdapter {
                 DecodedBatchEventKind::Insert(new_row)
                 | DecodedBatchEventKind::Update(new_row)
                 | DecodedBatchEventKind::Upsert(new_row) => {
-                    let popped_row = p_index.mt_delete_return(&pk, &g);
-                    if let Some(row) = popped_row {
+                    let popped_row = p_index.mt_delete_return_entry(&pk, &g);
+                    if let Some(popped_row) = popped_row {
                         /*
                             if a newer version of the row is received first and the older version is pending to be synced, the older
                             version is never synced. this is how the diffing algorithm works to ensure consistency.
-                            the delta diff algorithm statically guarantees this. insert(s),update(s) and upsert(s) are all essentially
-                            "new versions" of rows and as such, the only thing we need to do is remove the older row (which is guranteed
-                            to be "old") and replace it with the newer row.
+                            the delta diff algorithm statically guarantees this.
+
+                            However, upsert is a special case because it will not touch the existing row (if present, with the same key).
+                            This means that we potentially have this "ghost row" that will be written to disk. So assume that the upsert
+                            "happens before" (once again, we're talking logical clocks and not time). In that case we have a completely
+                            unrelated row present occupying the same key. So when we receive an update or insert after the the below assertion
+                            would fail. We want to be able to guard against this.
+
+                            FIXME(@ohsayan): try and trace this somehow, overall in an effort to ensure consistency (and be able to clearly test
+                            it)
                         */
-                        let row_txn_revised = row.read().get_txn_revised();
-                        assert!(
-                            row_txn_revised.value_u64() == 0 || row_txn_revised < txn_id,
-                            "revised ID is {} but our row has version {}",
-                            row.read().get_txn_revised().value_u64(),
-                            txn_id.value_u64()
-                        );
+                        let popped_row_txn_revised = popped_row.d_data().read().get_txn_revised();
+                        if popped_row_txn_revised > txn_id {
+                            // the row present is actually newer. in this case we resolve deltas and go to the next txn ID
+                            let _ = popped_row.resolve_schema_deltas_and_freeze(m.delta_state());
+                            let _ = p_index.mt_insert(popped_row.clone(), &g);
+                            continue;
+                        } else {
+                            assert!(
+                                popped_row_txn_revised.value_u64() == 0
+                                    || popped_row_txn_revised < txn_id,
+                                "revised ID is {} but our row has version {}",
+                                popped_row.d_data().read().get_txn_revised().value_u64(),
+                                txn_id.value_u64()
+                            );
+                        }
                     }
                     if txn_id > real_last_txn_id {
                         real_last_txn_id = txn_id;
