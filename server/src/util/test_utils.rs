@@ -52,7 +52,7 @@ pub fn shuffle_slice<T>(slice: &mut [T], rng: &mut impl Rng) {
     slice.shuffle(rng)
 }
 
-pub fn with_variable<T, U>(variable: T, f: impl Fn(T) -> U) -> U {
+pub fn with_variable<T, U>(variable: T, mut f: impl FnMut(T) -> U) -> U {
     f(variable)
 }
 

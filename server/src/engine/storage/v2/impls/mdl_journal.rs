@@ -101,6 +101,7 @@ pub enum EventType {
     Update = 2,
     /// owing to inconsistent reads, we exited early
     EarlyExit = 3,
+    Upsert = 4,
 }
 
 /*
@@ -142,12 +143,13 @@ impl<'b> RowWriter<'b> {
         change: DataDeltaKind,
         txn_id: DeltaVersion,
     ) -> RuntimeResult<()> {
-        if cfg!(debug) {
+        if cfg!(debug_assertions) {
             let event_kind = EventType::try_from_raw(change.value_u8()).unwrap();
             match (event_kind, change) {
                 (EventType::Delete, DataDeltaKind::Delete)
                 | (EventType::Insert, DataDeltaKind::Insert)
-                | (EventType::Update, DataDeltaKind::Update) => {}
+                | (EventType::Update, DataDeltaKind::Update)
+                | (EventType::Upsert, DataDeltaKind::Upsert) => {}
                 (EventType::EarlyExit, _) => unreachable!(),
                 _ => panic!(),
             }
@@ -270,7 +272,7 @@ impl<'a, 'b> BatchWriter<'a, 'b> {
                     .write_row_metadata(delta.change(), delta.data_version())?;
                 self.row_writer.write_row_pk(delta.row().d_key())?;
             }
-            DataDeltaKind::Insert | DataDeltaKind::Update => {
+            DataDeltaKind::Insert | DataDeltaKind::Update | DataDeltaKind::Upsert => {
                 // resolve deltas (this is yet another opportunity for us to reclaim memory from deleted items)
                 let row_data = delta
                     .row()
@@ -383,10 +385,12 @@ pub struct BatchMetadata {
     column_count: u64,
 }
 
+#[derive(Debug)]
 enum DecodedBatchEventKind {
     Delete,
     Insert(Vec<Datacell>),
     Update(Vec<Datacell>),
+    Upsert(Vec<Datacell>),
 }
 
 /// State handling for any pending queries
@@ -394,6 +398,7 @@ pub struct BatchRestoreState {
     events: Vec<DecodedBatchEvent>,
 }
 
+#[derive(Debug)]
 struct DecodedBatchEvent {
     txn_id: DeltaVersion,
     pk: PrimaryIndexKey,
@@ -481,7 +486,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
                     DecodedBatchEventKind::Delete,
                 ));
             }
-            EventType::Insert | EventType::Update => {
+            EventType::Insert | EventType::Update | EventType::Upsert => {
                 // insert or update
                 // prepare row
                 let row = restore_impls::decode_row_data(batch_info, f)?;
@@ -492,11 +497,19 @@ impl BatchAdapterSpec for ModelDataAdapter {
                         DecodedBatchEventKind::Insert(row),
                     ));
                 } else {
-                    bs.events.push(DecodedBatchEvent::new(
-                        txn_id,
-                        pk,
-                        DecodedBatchEventKind::Update(row),
-                    ));
+                    if event_type == EventType::Upsert {
+                        bs.events.push(DecodedBatchEvent::new(
+                            txn_id,
+                            pk,
+                            DecodedBatchEventKind::Upsert(row),
+                        ));
+                    } else {
+                        bs.events.push(DecodedBatchEvent::new(
+                            txn_id,
+                            pk,
+                            DecodedBatchEventKind::Update(row),
+                        ));
+                    }
                 }
             }
             EventType::EarlyExit => unreachable!(),
@@ -511,28 +524,48 @@ impl BatchAdapterSpec for ModelDataAdapter {
         /*
             go over each change in this batch, resolve conflicts and then apply to global state
         */
-        let g = unsafe { crossbeam_epoch::unprotected() };
+        let mut g = crossbeam_epoch::pin();
         let mut pending_delete = HashMap::new();
         let p_index = gs.primary_index().__raw_index();
         let m = gs;
         let mut real_last_txn_id = DeltaVersion::genesis();
         for DecodedBatchEvent { txn_id, pk, kind } in batch_state.events {
             match kind {
-                DecodedBatchEventKind::Insert(new_row) | DecodedBatchEventKind::Update(new_row) => {
-                    let popped_row = p_index.mt_delete_return(&pk, &g);
-                    if let Some(row) = popped_row {
+                DecodedBatchEventKind::Insert(new_row)
+                | DecodedBatchEventKind::Update(new_row)
+                | DecodedBatchEventKind::Upsert(new_row) => {
+                    let popped_row = p_index.mt_delete_return_entry(&pk, &g);
+                    if let Some(popped_row) = popped_row {
                         /*
                             if a newer version of the row is received first and the older version is pending to be synced, the older
                             version is never synced. this is how the diffing algorithm works to ensure consistency.
                             the delta diff algorithm statically guarantees this.
+
+                            However, upsert is a special case because it will not touch the existing row (if present, with the same key).
+                            This means that we potentially have this "ghost row" that will be written to disk. So assume that the upsert
+                            "happens before" (once again, we're talking logical clocks and not time). In that case we have a completely
+                            unrelated row present occupying the same key. So when we receive an update or insert after the the below assertion
+                            would fail. We want to be able to guard against this.
+
+                            FIXME(@ohsayan): try and trace this somehow, overall in an effort to ensure consistency (and be able to clearly test
+                            it)
                         */
-                        let row_txn_revised = row.read().get_txn_revised();
-                        assert!(
-                            row_txn_revised.value_u64() == 0 || row_txn_revised < txn_id,
-                            "revised ID is {} but our row has version {}",
-                            row.read().get_txn_revised().value_u64(),
-                            txn_id.value_u64()
-                        );
+                        let popped_row_txn_revised = popped_row.d_data().read().get_txn_revised();
+                        if popped_row_txn_revised > txn_id {
+                            // the row present is actually newer. in this case we resolve deltas and go to the next txn ID
+                            let _ = popped_row.resolve_schema_deltas_and_freeze(m.delta_state());
+                            let _ = p_index.mt_insert(popped_row.clone(), &g);
+                            g.flush();
+                            continue;
+                        } else {
+                            assert!(
+                                popped_row_txn_revised.value_u64() == 0
+                                    || popped_row_txn_revised < txn_id,
+                                "revised ID is {} but our row has version {}",
+                                popped_row.d_data().read().get_txn_revised().value_u64(),
+                                txn_id.value_u64()
+                            );
+                        }
                     }
                     if txn_id > real_last_txn_id {
                         real_last_txn_id = txn_id;
@@ -572,12 +605,12 @@ impl BatchAdapterSpec for ModelDataAdapter {
                         HMEntry::Occupied(mut existing_delete) => {
                             if *existing_delete.get() > txn_id {
                                 /*
-                                    this is a "newer delete" and it takes precedence. basically the same key was
+                                    the existing delete is a "newer delete" and it takes precedence. basically the same key was
                                     deleted by two txns but they were only synced much later, and out of order.
                                 */
                                 continue;
                             }
-                            // the existing delete happened before our delete, so our delete takes precedence
+                            // the existing delete "is older" than the current delete, so our delete takes precedence
                             // we have a newer delete for the same key
                             *existing_delete.get_mut() = txn_id;
                         }
@@ -588,6 +621,8 @@ impl BatchAdapterSpec for ModelDataAdapter {
                     }
                 }
             }
+            g.repin();
+            g.flush();
         }
         // apply pending deletes; all our conflicts would have been resolved by now
         for (pk, txn_id) in pending_delete {
@@ -609,7 +644,11 @@ impl BatchAdapterSpec for ModelDataAdapter {
                     // in this case, we do nothing
                 }
             }
+            g.repin();
+            g.flush();
         }
+        g.repin();
+        g.flush();
         // +1 since it is a fetch add!
         m.delta_state()
             .__set_delta_version(DeltaVersion::__new(real_last_txn_id.value_u64() + 1));

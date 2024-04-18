@@ -30,10 +30,7 @@ use {
 };
 
 mod alter_space {
-    use {
-        super::*,
-        crate::engine::{data::lit::Lit, ql::ddl::alt::AlterSpace},
-    };
+    use {super::*, crate::engine::ql::ddl::alt::AlterSpace};
     #[test]
     fn alter_space_mini() {
         fullparse_verify_substmt("alter model mymodel with {}", |r: AlterSpace| {
@@ -66,7 +63,7 @@ mod alter_space {
 mod tymeta {
     use super::*;
     use crate::engine::ql::{
-        ast::{parse_ast_node_full, traits::ASTNode, State},
+        ast::{parse_ast_node_full, State},
         ddl::syn::{DictTypeMeta, DictTypeMetaSplit},
     };
     #[test]
@@ -271,7 +268,6 @@ mod fields {
         crate::engine::ql::{
             ast::parse_ast_node_full,
             ddl::syn::{FieldSpec, LayerSpec},
-            lex::Ident,
         },
     };
     #[test]
@@ -716,7 +712,6 @@ mod alter_model_remove {
     use crate::engine::ql::{
         ast::parse_ast_node_full_with_space,
         ddl::alt::{AlterKind, AlterModel},
-        lex::Ident,
     };
     #[test]
     fn alter_mini() {
@@ -1095,7 +1090,6 @@ mod ddl_other_query_tests {
         crate::engine::ql::{
             ast::{parse_ast_node_full, parse_ast_node_full_with_space},
             ddl::drop::{DropModel, DropSpace},
-            lex::Ident,
         },
     };
     #[test]

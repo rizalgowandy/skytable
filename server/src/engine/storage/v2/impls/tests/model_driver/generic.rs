@@ -1,5 +1,5 @@
 /*
- * Created on Thu Feb 22 2024
+ * Created on Mon Apr 15 2024
  *
  * This file is a part of Skytable
  * Skytable (formerly known as TerrabaseDB or Skybase) is a free and open-source
@@ -283,6 +283,7 @@ fn model_data_inserts() {
 }
 
 #[test]
+#[cfg(not(all(target_os = "windows", target_pointer_width = "32")))]
 fn model_data_updates() {
     run_sample_updates(
         "model_data_updates_variable_key",

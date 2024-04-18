@@ -26,7 +26,7 @@
 
 use super::*;
 use crate::engine::ql::{
-    ast::{traits::ASTNode, State},
+    ast::State,
     ddl::{Inspect, Use},
 };
 

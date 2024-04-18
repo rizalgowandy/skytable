@@ -53,7 +53,7 @@ impl PrimaryIndex {
             latch: IndexLatch::new(),
         }
     }
-    pub fn acquire_cd(&self) -> IndexLatchHandleShared {
+    pub fn acquire_shared(&self) -> IndexLatchHandleShared {
         self.latch.gl_handle_shared()
     }
     pub fn acquire_exclusive(&self) -> IndexLatchHandleExclusive {

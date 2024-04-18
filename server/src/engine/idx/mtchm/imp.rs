@@ -128,7 +128,7 @@ impl<E: TreeElement, C: Config> MTIndex<E, E::Key, E::Value> for Raw<E, C> {
         self.patch(VanillaInsert(e), g)
     }
 
-    fn mt_upsert(&self, e: E, g: &Guard)
+    fn mt_upsert(&self, e: E, g: &Guard) -> bool
     where
         E::Value: AsValue,
     {

@@ -468,6 +468,10 @@ pub struct ModelMutator<'a> {
 }
 
 impl<'a> ModelMutator<'a> {
+    #[cfg(test)]
+    pub unsafe fn allocate(&mut self, k: &str) -> RawStr {
+        self.model.private.allocate_or_recycle(k)
+    }
     pub unsafe fn vacuum_stashed(&mut self) {
         self.model.private.vacuum_marked()
     }

@@ -265,7 +265,7 @@ macro_rules! flattened_lut {
 		$vis:vis enum $enum:ident {
 			$($(#[$variant_attr:meta])* $variant:ident => {
                 $(#[$nested_enum_attr:meta])*
-                $nested_enum_vis:vis enum $nested_enum_name:ident {$($(#[$nested_variant_attr:meta])* $nested_enum_variant_name:ident $(= $nested_enum_variant_dscr:expr)?,)*}
+                $nested_enum_vis:vis enum $nested_enum_name:ident {$($(#[$nested_variant_attr:meta])* $nested_enum_variant_name:ident $(: $($alternative_name:ident)|*)? $(= $nested_enum_variant_dscr:expr)?,)*}
             }),* $(,)?
 		}
 	) => {
@@ -273,18 +273,19 @@ macro_rules! flattened_lut {
 			$(#[$nested_enum_attr])*
 			$nested_enum_vis enum $nested_enum_name {$($(#[$nested_variant_attr])* $nested_enum_variant_name $(= $nested_enum_variant_dscr)*),*}
 			impl $nested_enum_name {
-                const __LEN: usize = {let mut i = 0; $( let _ = Self::$nested_enum_variant_name; i += 1; )*i};
+                const __LEN: usize = {let mut i = 0; $( i += {let l = [$($(stringify!($alternative_name),)*)? stringify!($nested_enum_variant_name)].len(); if l == 1 { 1 } else { l - 1 }}; )*i};
                 const __SL: [usize; 2] = {
-                    let mut largest = 0;
-                    let mut smallest = usize::MAX;
+                    let mut largest = 0; let mut smallest = usize::MAX;
                     $(
-                        let this = stringify!($nested_enum_variant_name).len();
-                        if this > largest { largest = this } if this < smallest { smallest = this }
+                        let alt_kw = [stringify!($nested_enum_variant_name), $($(stringify!($alternative_name),)*)?];
+                        let mut alt_kw_i = 0;
+                        while alt_kw_i < alt_kw.len() {
+                            let this = alt_kw[alt_kw_i].len(); if this > largest { largest = this } if this < smallest { smallest = this } alt_kw_i += 1;
+                        }
                     )*
                     [smallest, largest]
                 };
-                const __SMALLEST: usize = Self::__SL[0];
-                const __LARGEST: usize = Self::__SL[1];
+                const __SMALLEST: usize = Self::__SL[0]; const __LARGEST: usize = Self::__SL[1];
                 const fn __max() -> usize { Self::__LEN }
 				pub const fn as_str(&self) -> &'static str {match self {$(
                     Self::$nested_enum_variant_name => {
@@ -292,8 +293,7 @@ macro_rules! flattened_lut {
                         const NAME_BUF: [u8; { NAME_STR.len() }] = {
                             let mut buf = [0u8; { NAME_STR.len() }]; let name = NAME_STR.as_bytes();
                             buf[0] = name[0].to_ascii_lowercase(); let mut i = 1;
-                            while i < NAME_STR.len() { buf[i] = name[i]; i += 1; }
-                            buf
+                            while i < NAME_STR.len() { buf[i] = name[i]; i += 1; } buf
                         }; const NAME: &'static str = unsafe { core::str::from_utf8_unchecked(&NAME_BUF) }; NAME
                     }
 				)*}}
@@ -312,14 +312,19 @@ macro_rules! flattened_lut {
                 )*
                 [smallest, largest]
             };
-            const SIZE_MIN: usize = Self::SL[0];
-            const SIZE_MAX: usize = Self::SL[1];
+            const SIZE_MIN: usize = Self::SL[0]; const SIZE_MAX: usize = Self::SL[1];
         }
         impl ToString for $enum { fn to_string(&self) -> String { self.as_str().to_owned() } }
         mod $staticpriv { pub const LEN: usize = { let mut i = 0; $(i += super::$nested_enum_name::__max();)* i }; }
-        $staticvis static $staticname: [(&'static [u8], $enum); { $staticpriv::LEN }] = [
-            $($(($nested_enum_name::$nested_enum_variant_name.as_str().as_bytes() ,$enum::$variant($nested_enum_name::$nested_enum_variant_name)),)*)*
-        ];
+        $staticvis static $staticname: [(&'static [u8], $enum); { $staticpriv::LEN }] = {
+            let mut ret = [(b"".as_slice(), Keyword::Misc(KeywordMisc::Auto)); { $staticpriv::LEN }];
+            let mut i = 0;
+            $($(
+                let alt_kw = [stringify!($nested_enum_variant_name), $($(stringify!($alternative_name),)*)?];
+                let mut j = 0; let k = if alt_kw.len() == 1 { 1 } else { alt_kw.len() - 1 };
+                while j < k { ret[i] = (alt_kw[j].as_bytes() ,$enum::$variant($nested_enum_name::$nested_enum_variant_name)); i += 1; j += 1; }
+            )*)*ret
+        };
 	}
 }
 
@@ -329,7 +334,17 @@ flattened_lut! {
     #[repr(u8)]
     pub enum Keyword {
         Statement => {
-            #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, sky_macros::EnumMethods)]
+            #[derive(
+                Debug,
+                PartialEq,
+                Eq,
+                PartialOrd,
+                Ord,
+                Clone,
+                Copy,
+                sky_macros::EnumMethods,
+                sky_macros::TaggedEnum,
+            )]
             #[repr(u8)]
             /// A statement keyword
             pub enum KeywordStmt {
@@ -344,11 +359,12 @@ flattened_lut! {
                 Inspect = 5,
                 Describe = 6,
                 // DML
-                Insert = 7,
-                Select = 8,
-                Update = 9,
-                Delete = 10,
-                Exists = 11,
+                Insert: Ins | Insert = 7,
+                Select: Sel | Select = 8,
+                Update: Upd | Update  = 9,
+                Delete: Del | Delete = 10,
+                Upsert: Ups | Upsert = 11,
+                Exists = 12,
             }
         },
         /// Hi
@@ -432,13 +448,14 @@ impl Keyword {
         }
     }
     fn compute(key: &[u8]) -> Option<Self> {
-        static G: [u8; 69] = [
-            0, 0, 9, 64, 16, 43, 7, 49, 24, 8, 41, 37, 19, 66, 18, 0, 17, 0, 12, 63, 34, 56, 3, 24,
-            55, 14, 0, 67, 7, 0, 39, 60, 56, 0, 51, 23, 31, 19, 30, 12, 10, 58, 20, 39, 32, 0, 6,
-            30, 26, 58, 52, 62, 39, 27, 24, 9, 4, 21, 24, 68, 10, 38, 40, 21, 62, 27, 53, 27, 44,
+        static G: [u8; 78] = [
+            0, 19, 60, 52, 68, 26, 43, 57, 15, 10, 77, 0, 0, 38, 35, 55, 40, 27, 13, 50, 20, 5, 51,
+            53, 34, 62, 22, 43, 0, 9, 8, 0, 28, 35, 22, 0, 33, 1, 34, 44, 9, 14, 0, 76, 70, 30, 29,
+            0, 73, 50, 18, 57, 57, 31, 5, 31, 1, 22, 33, 64, 30, 6, 19, 34, 32, 0, 70, 10, 28, 37,
+            62, 0, 64, 0, 0, 30, 12, 57,
         ];
-        static M1: [u8; 11] = *b"D8N5FwqrxdA";
-        static M2: [u8; 11] = *b"FsIPJv9hsXx";
+        static M1: [u8; 11] = *b"H7ulUIcOFSG";
+        static M2: [u8; 11] = *b"7wE0VbAtQQa";
         let h1 = Self::_sum(key, M1) % G.len();
         let h2 = Self::_sum(key, M2) % G.len();
         let h = (G[h1] + G[h2]) as usize % G.len();
@@ -465,4 +482,29 @@ impl KeywordStmt {
     pub const fn is_blocking(&self) -> bool {
         self.value_u8() <= Self::Drop.value_u8()
     }
+    pub const NONBLOCKING_COUNT: usize = Self::BLK_NBLK.1;
+    const BLK_NBLK: (usize, usize) = {
+        let mut i = 0usize;
+        let mut nb = 0;
+        let mut blk = 0;
+        while i < Self::VARIANTS.len() {
+            match Self::VARIANTS[i] {
+                KeywordStmt::Create
+                | KeywordStmt::Alter
+                | KeywordStmt::Drop
+                | KeywordStmt::Sysctl => blk += 1,
+                KeywordStmt::Use
+                | KeywordStmt::Inspect
+                | KeywordStmt::Describe
+                | KeywordStmt::Insert
+                | KeywordStmt::Select
+                | KeywordStmt::Update
+                | KeywordStmt::Delete
+                | KeywordStmt::Exists
+                | KeywordStmt::Upsert => nb += 1,
+            }
+            i += 1;
+        }
+        (blk, nb)
+    };
 }
