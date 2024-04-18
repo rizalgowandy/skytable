@@ -524,7 +524,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
         /*
             go over each change in this batch, resolve conflicts and then apply to global state
         */
-        let g = crossbeam_epoch::pin();
+        let mut g = crossbeam_epoch::pin();
         let mut pending_delete = HashMap::new();
         let p_index = gs.primary_index().__raw_index();
         let m = gs;
@@ -555,6 +555,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
                             // the row present is actually newer. in this case we resolve deltas and go to the next txn ID
                             let _ = popped_row.resolve_schema_deltas_and_freeze(m.delta_state());
                             let _ = p_index.mt_insert(popped_row.clone(), &g);
+                            g.flush();
                             continue;
                         } else {
                             assert!(
@@ -620,6 +621,8 @@ impl BatchAdapterSpec for ModelDataAdapter {
                     }
                 }
             }
+            g.repin();
+            g.flush();
         }
         // apply pending deletes; all our conflicts would have been resolved by now
         for (pk, txn_id) in pending_delete {
@@ -641,7 +644,11 @@ impl BatchAdapterSpec for ModelDataAdapter {
                     // in this case, we do nothing
                 }
             }
+            g.repin();
+            g.flush();
         }
+        g.repin();
+        g.flush();
         // +1 since it is a fetch add!
         m.delta_state()
             .__set_delta_version(DeltaVersion::__new(real_last_txn_id.value_u64() + 1));

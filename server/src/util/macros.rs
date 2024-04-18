@@ -263,7 +263,7 @@ macro_rules! exit_fatal {
     }};
 }
 
-#[cfg(test)]
+#[allow(unused_macros)]
 macro_rules! decl {
     ($(let $array:ident: [$type:ty] = [$($expr:expr),* $(,)?]);* $(;)?) => {
         $(mod $array { pub const SIZE: usize = { let mut i = 0; $(let _ = stringify!($expr); i += 1;)* i += 0; i }; }
