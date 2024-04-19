@@ -141,12 +141,11 @@ jobs:
         run: |
           sudo apt update
           sudo apt install gh -y
-      - name: Upload release binaries
+      - name: Upload release assets
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
           TAG_NAME: ${{ env.VERSION }}
         run: |
-          gh auth login --with-token <<< $GITHUB_TOKEN
-          for file in $(find ./artifacts/ -type f -name "*.zip" -o -name "*.deb"); do
+          for file in artifacts/packages/*; do
             gh release upload "$TAG_NAME" "$file"
           done
