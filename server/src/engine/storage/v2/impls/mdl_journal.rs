@@ -46,7 +46,7 @@ use {
                 v2::raw::{
                     journal::{
                         self, BatchAdapter, BatchAdapterSpec, BatchDriver, JournalAdapterEvent,
-                        JournalSettings, RawJournalAdapter,
+                        JournalHeuristics, JournalSettings, JournalStats, RawJournalAdapter,
                     },
                     spec::ModelDataBatchAofV1,
                 },
@@ -70,7 +70,7 @@ impl ModelDriver {
         mdl: &ModelData,
         model_data_file_path: &str,
         settings: JournalSettings,
-    ) -> RuntimeResult<Self> {
+    ) -> RuntimeResult<(Self, JournalStats)> {
         journal::open_journal(model_data_file_path, mdl, settings)
     }
     /// Create a new event log
@@ -473,6 +473,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
         f: &mut TrackedReaderContext<Self::Spec>,
         batch_info: &Self::BatchMetadata,
         event_type: Self::EventType,
+        _: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         // get txn id
         let txn_id = u64::from_le_bytes(f.read_block()?);
@@ -520,6 +521,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
         batch_state: Self::BatchState,
         batch_md: Self::BatchMetadata,
         gs: &Self::GlobalState,
+        heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         /*
             go over each change in this batch, resolve conflicts and then apply to global state
@@ -529,6 +531,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
         let p_index = gs.primary_index().__raw_index();
         let m = gs;
         let mut real_last_txn_id = DeltaVersion::genesis();
+        let mut redundant_records = 0;
         for DecodedBatchEvent { txn_id, pk, kind } in batch_state.events {
             match kind {
                 DecodedBatchEventKind::Insert(new_row)
@@ -550,6 +553,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
                             FIXME(@ohsayan): try and trace this somehow, overall in an effort to ensure consistency (and be able to clearly test
                             it)
                         */
+                        redundant_records += 1;
                         let popped_row_txn_revised = popped_row.d_data().read().get_txn_revised();
                         if popped_row_txn_revised > txn_id {
                             // the row present is actually newer. in this case we resolve deltas and go to the next txn ID
@@ -601,6 +605,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
                         due to the concurrent nature of the engine, deletes can "appear before" an insert or update and since
                         we don't store deleted txn ids, we just put this in a pending list.
                     */
+                    redundant_records += 1;
                     match pending_delete.entry(pk) {
                         HMEntry::Occupied(mut existing_delete) => {
                             if *existing_delete.get() > txn_id {
@@ -652,6 +657,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
         // +1 since it is a fetch add!
         m.delta_state()
             .__set_delta_version(DeltaVersion::__new(real_last_txn_id.value_u64() + 1));
+        heuristics.report_additional_redundant_records(redundant_records);
         Ok(())
     }
 }

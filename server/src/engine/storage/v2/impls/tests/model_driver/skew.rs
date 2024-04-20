@@ -76,6 +76,7 @@ fn initialize_or_reopen_model_driver(name: &str, mdl_uuid: Uuid) -> Model {
                 std::io::ErrorKind::AlreadyExists => {
                     ModelDriver::open_model_driver(mdl.data(), name, JournalSettings::default())
                         .unwrap()
+                        .0
                 }
                 _ => panic!("{e}"),
             },

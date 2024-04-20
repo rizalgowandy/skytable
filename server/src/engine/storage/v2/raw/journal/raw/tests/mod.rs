@@ -24,13 +24,14 @@
  *
 */
 
+mod compaction;
 mod journal_ops;
 mod recovery;
 
 use {
     super::{
-        create_journal, CommitPreference, DriverEvent, DriverEventKind, JournalInitializer,
-        RawJournalAdapter, RawJournalAdapterEvent, RawJournalWriter,
+        create_journal, CommitPreference, DriverEvent, DriverEventKind, JournalHeuristics,
+        JournalInitializer, RawJournalAdapter, RawJournalAdapterEvent, RawJournalWriter,
     },
     crate::engine::{
         error::StorageError,
@@ -169,6 +170,7 @@ impl RawJournalAdapter for SimpleDBJournal {
         gs: &Self::GlobalState,
         meta: Self::EventMeta,
         file: &mut TrackedReader<Self::Spec>,
+        _: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         match meta {
             EventMeta::NewKey => {

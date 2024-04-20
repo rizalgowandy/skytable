@@ -70,13 +70,13 @@ pub fn open_journal<J: RawJournalAdapter>(
     log_path: &str,
     gs: &J::GlobalState,
     settings: JournalSettings,
-) -> RuntimeResult<RawJournalWriter<J>>
+) -> RuntimeResult<(RawJournalWriter<J>, JournalStats)>
 where
     J::Spec: FileSpecV1<DecodeArgs = ()>,
 {
     let log = SdssFile::<J::Spec>::open(log_path)?;
-    let (initializer, file) = RawJournalReader::<J>::scroll(log, gs, settings)?;
-    RawJournalWriter::new(initializer, file)
+    let (initializer, stats, file) = RawJournalReader::<J>::scroll(log, gs, settings)?;
+    RawJournalWriter::new(initializer, file).map(|jw| (jw, stats))
 }
 
 #[derive(Debug, PartialEq)]
@@ -340,6 +340,7 @@ pub trait RawJournalAdapter: Sized {
         gs: &Self::GlobalState,
         meta: Self::EventMeta,
         file: &mut TrackedReader<Self::Spec>,
+        heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()>;
 }
 
@@ -633,7 +634,7 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
     }
     /// roll back to the last txn
     /// WARNING: only call on failure
-    /// 
+    ///
     /// NB: Idempotency is guaranteed. Will rollback to, and only to the last event
     pub fn __rollback(&mut self) -> RuntimeResult<()> {
         // ensure cursors are in sync, even if out of position
@@ -763,16 +764,62 @@ impl JournalSettings {
 
 #[derive(Debug)]
 pub struct JournalStats {
+    header: usize,
     server_events: usize,
     driver_events: usize,
+    heuristics: JournalHeuristics,
+    file_size: usize,
+}
+
+#[derive(Debug)]
+pub struct JournalHeuristics {
+    redundant_records: usize,
+}
+
+impl JournalHeuristics {
+    #[inline(always)]
+    pub fn report_additional_redundant_records(&mut self, additional: usize) {
+        self.redundant_records += additional;
+    }
+    #[inline(always)]
+    pub fn report_new_redundant_record(&mut self) {
+        self.report_additional_redundant_records(1)
+    }
 }
 
 impl JournalStats {
-    fn new() -> Self {
+    /// Returns true if a compaction would be prudent
+    pub fn compaction_recommended(&self) -> bool {
+        let minimum_file_size_compaction_trigger: usize = if cfg!(test) {
+            (DriverEvent::FULL_EVENT_SIZE * 10) + self.header
+        } else {
+            4 * 1024 * 1024
+        };
+        let total_records = self.server_events + self.driver_events;
+        let server_event_percentage = (self.server_events as f64 / total_records as f64) * 100.0;
+        let driver_event_percentage = (self.driver_events as f64 / total_records as f64) * 100.0;
+        let redundant_record_percentage = if self.server_events == 0 {
+            0.0
+        } else {
+            (self.heuristics.redundant_records as f64 / self.server_events as f64) * 100.00
+        };
+        self.file_size >= minimum_file_size_compaction_trigger
+            && (driver_event_percentage >= server_event_percentage
+                || redundant_record_percentage >= 10.0)
+    }
+    fn new<J: RawJournalAdapter>() -> Self {
         Self {
             server_events: 0,
             driver_events: 0,
+            heuristics: JournalHeuristics {
+                redundant_records: 0,
+            },
+            file_size: 0,
+            header: <<J as RawJournalAdapter>::Spec as FileSpecV1>::SIZE,
         }
+    }
+    fn set_file_size(&mut self, size: usize) {
+        self.file_size = size;
     }
 }
 
@@ -781,14 +828,16 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
         file: SdssFile<<J as RawJournalAdapter>::Spec>,
         gs: &J::GlobalState,
         settings: JournalSettings,
-    ) -> RuntimeResult<(JournalInitializer, SdssFile<J::Spec>)> {
+    ) -> RuntimeResult<(JournalInitializer, JournalStats, SdssFile<J::Spec>)> {
         let reader = TrackedReader::with_cursor(
             file,
             <<J as RawJournalAdapter>::Spec as FileSpecV1>::SIZE as u64,
         )?;
         jtrace_reader!(Initialized);
         let mut me = Self::new(reader, 0, 0, 0, 0, settings);
-        me._scroll(gs).map(|jinit| (jinit, me.tr.into_inner()))
+        me.stats.set_file_size(me.tr.cached_size() as usize);
+        me._scroll(gs)
+            .map(|jinit| (jinit, me.stats, me.tr.into_inner()))
     }
     fn _scroll(&mut self, gs: &J::GlobalState) -> RuntimeResult<JournalInitializer> {
         loop {
@@ -824,7 +873,7 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
             last_txn_id,
             last_txn_offset,
             last_txn_checksum,
-            stats: JournalStats::new(),
+            stats: JournalStats::new::<J>(),
             _settings: settings,
             state: JournalState::AwaitingEvent,
         }
@@ -1010,7 +1059,7 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
                     // now parse the actual event
                     let Self { tr: reader, .. } = self;
                     // we do not consider a parsed event a success signal; so we must actually apply it
-                    match J::decode_apply(gs, meta, reader) {
+                    match J::decode_apply(gs, meta, reader, &mut self.stats.heuristics) {
                         Ok(()) => {
                             jtrace_reader!(ServerEventAppliedSuccess);
                             Self::__refresh_known_txn(self);

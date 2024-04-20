@@ -47,8 +47,9 @@ mod raw;
 #[cfg(test)]
 mod tests;
 pub use raw::{
-    create_journal, open_journal, repair_journal, JournalRepairMode, JournalSettings,
-    RawJournalAdapter, RawJournalAdapterEvent as JournalAdapterEvent, RepairResult,
+    create_journal, open_journal, repair_journal, JournalHeuristics, JournalRepairMode,
+    JournalSettings, JournalStats, RawJournalAdapter,
+    RawJournalAdapterEvent as JournalAdapterEvent, RepairResult,
 };
 
 /*
@@ -66,7 +67,7 @@ pub type EventLogDriver<EL> = RawJournalWriter<EventLogAdapter<EL>>;
 /// The event log adapter
 #[derive(Debug)]
 pub struct EventLogAdapter<EL: EventLogSpec>(PhantomData<EL>);
-type DispatchFn<G> = fn(&G, Vec<u8>) -> RuntimeResult<()>;
+type DispatchFn<G> = fn(&G, &mut JournalHeuristics, Vec<u8>) -> RuntimeResult<()>;
 
 /// Specification for an event log
 pub trait EventLogSpec {
@@ -128,6 +129,7 @@ impl<EL: EventLogSpec> RawJournalAdapter for EventLogAdapter<EL> {
         gs: &Self::GlobalState,
         meta: Self::EventMeta,
         file: &mut TrackedReader<Self::Spec>,
+        heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         let expected_checksum = u64::from_le_bytes(file.read_block()?);
         let plen = u64::from_le_bytes(file.read_block()?);
@@ -141,7 +143,7 @@ impl<EL: EventLogSpec> RawJournalAdapter for EventLogAdapter<EL> {
         }
         <EL as EventLogSpec>::DECODE_DISPATCH
             [<<EL as EventLogSpec>::EventMeta as TaggedEnum>::dscr_u64(&meta) as usize](
-            gs, pl
+            gs, heuristics, pl,
         )
     }
 }
@@ -170,7 +172,7 @@ impl<BA: BatchAdapterSpec> BatchAdapter<BA> {
         name: &str,
         gs: &BA::GlobalState,
         settings: JournalSettings,
-    ) -> RuntimeResult<BatchDriver<BA>>
+    ) -> RuntimeResult<(BatchDriver<BA>, JournalStats)>
     where
         BA::Spec: FileSpecV1<DecodeArgs = ()>,
     {
@@ -225,12 +227,14 @@ pub trait BatchAdapterSpec {
         f: &mut TrackedReaderContext<Self::Spec>,
         batch_info: &Self::BatchMetadata,
         event_type: Self::EventType,
+        heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()>;
     /// finish applying all changes to the global state
     fn finish(
         batch_state: Self::BatchState,
         batch_meta: Self::BatchMetadata,
         gs: &Self::GlobalState,
+        heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()>;
 }
 
@@ -265,6 +269,7 @@ impl<BA: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<BA> {
         gs: &Self::GlobalState,
         meta: Self::EventMeta,
         f: &mut TrackedReader<Self::Spec>,
+        heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         let mut f = f.context();
         {
@@ -295,6 +300,7 @@ impl<BA: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<BA> {
                     &mut f,
                     &batch_md,
                     event_type,
+                    heuristics,
                 )?;
                 real_commit_size += 1;
             }
@@ -302,7 +308,7 @@ impl<BA: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<BA> {
             let _stored_actual_commit_size = u64::from_le_bytes(f.read_block()?);
             if _stored_actual_commit_size == real_commit_size {
                 // finish applying batch
-                BA::finish(batch_state, batch_md, gs)?;
+                BA::finish(batch_state, batch_md, gs, heuristics)?;
             } else {
                 return Err(StorageError::RawJournalDecodeBatchContentsMismatch.into());
             }

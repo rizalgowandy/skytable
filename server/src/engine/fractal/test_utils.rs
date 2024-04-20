@@ -69,7 +69,7 @@ impl TestGlobal {
         for (model_name, model) in self.gns.namespace().idx_models().read().iter() {
             let model_data = model.data();
             let space_uuid = space_idx.get(model_name.space()).unwrap().get_uuid();
-            let driver = ModelDriver::open_model_driver(
+            let (driver, _) = ModelDriver::open_model_driver(
                 model_data,
                 &paths_v1::model_path(
                     model_name.space(),
@@ -99,6 +99,7 @@ impl TestGlobal {
                 ErrorKind::IoError(e_) => match e_.kind() {
                     std::io::ErrorKind::AlreadyExists => {
                         GNSDriver::open_gns_with_name(log_name, &data, Default::default())
+                            .map(|(jw, _)| jw)
                     }
                     _ => Err(e),
                 },

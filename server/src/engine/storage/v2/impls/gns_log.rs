@@ -34,7 +34,11 @@ use {
             core::GNSData,
             storage::{
                 common_encoding::r1::impls::gns::GNSEvent,
-                v2::raw::journal::{self, EventLogDriver, JournalAdapterEvent, JournalSettings},
+                v1,
+                v2::raw::journal::{
+                    self, EventLogDriver, JournalAdapterEvent, JournalHeuristics, JournalSettings,
+                    JournalStats,
+                },
             },
             txn::gns::{
                 model::{
@@ -60,29 +64,34 @@ pub type GNSDriver = EventLogDriver<GNSEventLog>;
 pub struct GNSEventLog;
 
 impl GNSDriver {
-    const FILE_PATH: &'static str = "gns.db-tlog";
     pub fn open_gns_with_name(
         name: &str,
         gs: &GNSData,
         settings: JournalSettings,
-    ) -> RuntimeResult<Self> {
+    ) -> RuntimeResult<(Self, JournalStats)> {
         journal::open_journal(name, gs, settings)
     }
-    pub fn open_gns(gs: &GNSData, settings: JournalSettings) -> RuntimeResult<Self> {
-        Self::open_gns_with_name(Self::FILE_PATH, gs, settings)
+    pub fn open_gns(
+        gs: &GNSData,
+        settings: JournalSettings,
+    ) -> RuntimeResult<(Self, JournalStats)> {
+        Self::open_gns_with_name(v1::GNS_PATH, gs, settings)
     }
     pub fn create_gns_with_name(name: &str) -> RuntimeResult<Self> {
         journal::create_journal(name)
     }
     /// Create a new event log
     pub fn create_gns() -> RuntimeResult<Self> {
-        Self::create_gns_with_name(Self::FILE_PATH)
+        Self::create_gns_with_name(v1::GNS_PATH)
     }
 }
 
 macro_rules! make_dispatch {
-    ($($obj:ty),* $(,)?) => {
-        [$(<$obj as crate::engine::storage::common_encoding::r1::impls::gns::GNSEvent>::decode_apply),*]
+    ($($obj:ty => $f:expr),* $(,)?) => {
+        [$(|gs, heuristics, payload| {
+            fn _c<F: Fn(&mut JournalHeuristics)>(f: F, heuristics: &mut JournalHeuristics) { f(heuristics) }
+            <$obj as crate::engine::storage::common_encoding::r1::impls::gns::GNSEvent>::decode_apply(gs, payload)?; _c($f, heuristics); Ok(())
+        }),*]
     }
 }
 
@@ -90,20 +99,20 @@ impl EventLogSpec for GNSEventLog {
     type Spec = SystemDatabaseV1;
     type GlobalState = GNSData;
     type EventMeta = GNSTransactionCode;
-    type DecodeDispatch =
-        [fn(&GNSData, Vec<u8>) -> RuntimeResult<()>; GNSTransactionCode::VARIANT_COUNT];
+    type DecodeDispatch = [fn(&GNSData, &mut JournalHeuristics, Vec<u8>) -> RuntimeResult<()>;
+        GNSTransactionCode::VARIANT_COUNT];
     const DECODE_DISPATCH: Self::DecodeDispatch = make_dispatch![
-        CreateSpaceTxn,
-        AlterSpaceTxn,
-        DropSpaceTxn,
-        CreateModelTxn,
-        AlterModelAddTxn,
-        AlterModelRemoveTxn,
-        AlterModelUpdateTxn,
-        DropModelTxn,
-        CreateUserTxn,
-        AlterUserTxn,
-        DropUserTxn,
+        CreateSpaceTxn => |_| {},
+        AlterSpaceTxn => |h| h.report_new_redundant_record(),
+        DropSpaceTxn => |h| h.report_new_redundant_record(),
+        CreateModelTxn => |_| {},
+        AlterModelAddTxn => |h| h.report_new_redundant_record(),
+        AlterModelRemoveTxn => |h| h.report_new_redundant_record(),
+        AlterModelUpdateTxn => |h| h.report_new_redundant_record(),
+        DropModelTxn => |h| h.report_new_redundant_record(),
+        CreateUserTxn => |_| {},
+        AlterUserTxn => |h| h.report_new_redundant_record(),
+        DropUserTxn => |h| h.report_new_redundant_record(),
     ];
 }
 

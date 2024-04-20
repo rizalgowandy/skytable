@@ -34,8 +34,9 @@ use {
         engine::{
             config::Configuration,
             core::{
+                model::Model,
                 system_db::{SystemDatabase, VerifyUser},
-                EntityIDRef, GNSData, GlobalNS,
+                EntityID, EntityIDRef, GNSData, GlobalNS,
             },
             fractal::{context, FractalGNSDriver},
             storage::{
@@ -66,15 +67,8 @@ pub const DATA_DIR: &str = v1::DATA_DIR;
 pub fn recreate(gns: GNSData) -> RuntimeResult<SELoaded> {
     context::set_dmsg("creating gns");
     let mut gns_driver = impls::gns_log::GNSDriver::create_gns()?;
-    // create all spaces
-    context::set_dmsg("creating all spaces");
-    for (space_name, space) in gns.idx().read().iter() {
-        FileSystem::create_dir_all(&paths_v1::space_dir(space_name, space.get_uuid()))?;
-        gns_driver.commit_event(CreateSpaceTxn::new(space.props(), &space_name, space))?;
-    }
-    // create all models
-    context::set_dmsg("creating all models");
-    for (model_id, model) in gns.idx_models().read().iter() {
+    reinit_full(&mut gns_driver, &gns, |model_id, model| {
+        // re-initialize model
         let model_data = model.data();
         let space_uuid = gns.idx().read().get(model_id.space()).unwrap().get_uuid();
         FileSystem::create_dir_all(&paths_v1::model_dir(
@@ -89,22 +83,44 @@ pub fn recreate(gns: GNSData) -> RuntimeResult<SELoaded> {
             model_id.entity(),
             model_data.get_uuid(),
         ))?;
-        gns_driver.commit_event(CreateModelTxn::new(
-            SpaceIDRef::with_uuid(model_id.space(), space_uuid),
-            model_id.entity(),
-            model_data,
-        ))?;
         model_driver.commit_with_ctx(FullModel::new(model_data), BatchStats::new())?;
         model.driver().initialize_model_driver(model_driver);
+        Ok(())
+    })?;
+    Ok(SELoaded {
+        gns: GlobalNS::new(gns, FractalGNSDriver::new(gns_driver)),
+    })
+}
+
+fn reinit_full(
+    gns_driver: &mut GNSDriver,
+    gns: &GNSData,
+    for_each_model: impl Fn(&EntityID, &Model) -> RuntimeResult<()>,
+) -> RuntimeResult<()> {
+    // create all spaces
+    context::set_dmsg("creating all spaces");
+    for (space_name, space) in gns.idx().read().iter() {
+        FileSystem::create_dir_all(&paths_v1::space_dir(space_name, space.get_uuid()))?;
+        gns_driver.commit_event(CreateSpaceTxn::new(space.props(), &space_name, space))?;
     }
     // create all users
     context::set_dmsg("creating all users");
     for (user_name, user) in gns.sys_db().users().read().iter() {
         gns_driver.commit_event(CreateUserTxn::new(&user_name, user.hash()))?;
     }
-    Ok(SELoaded {
-        gns: GlobalNS::new(gns, FractalGNSDriver::new(gns_driver)),
-    })
+    // create all models
+    context::set_dmsg("creating all models");
+    for (model_id, model) in gns.idx_models().read().iter() {
+        let model_data = model.data();
+        let space_uuid = gns.idx().read().get(model_id.space()).unwrap().get_uuid();
+        for_each_model(model_id, model)?;
+        gns_driver.commit_event(CreateModelTxn::new(
+            SpaceIDRef::with_uuid(model_id.space(), space_uuid),
+            model_id.entity(),
+            model_data,
+        ))?;
+    }
+    Ok(())
 }
 
 pub fn initialize_new(config: &Configuration) -> RuntimeResult<SELoaded> {
@@ -129,7 +145,11 @@ pub fn initialize_new(config: &Configuration) -> RuntimeResult<SELoaded> {
 pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
     let gns = GNSData::empty();
     context::set_dmsg("loading gns");
-    let mut gns_driver = impls::gns_log::GNSDriver::open_gns(&gns, JournalSettings::default())?;
+    let (mut gns_driver, gns_driver_stats) =
+        impls::gns_log::GNSDriver::open_gns(&gns, JournalSettings::default())?;
+    if gns_driver_stats.compaction_recommended() {
+        info!("compaction is recommeded for {GNS_PATH}");
+    }
     let mut initialize_drivers = || {
         for (id, model) in gns.idx_models().write().iter_mut() {
             let model_data = model.data();
@@ -137,11 +157,14 @@ pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
             let model_data_file_path =
                 paths_v1::model_path(id.space(), space_uuid, id.entity(), model_data.get_uuid());
             context::set_dmsg(format!("loading model driver in {model_data_file_path}"));
-            let model_driver = impls::mdl_journal::ModelDriver::open_model_driver(
+            let (model_driver, mdl_stats) = impls::mdl_journal::ModelDriver::open_model_driver(
                 model_data,
                 &model_data_file_path,
                 JournalSettings::default(),
             )?;
+            if mdl_stats.compaction_recommended() {
+                info!("compaction is recommneded for {model_data_file_path}")
+            }
             model.driver().initialize_model_driver(model_driver);
             unsafe {
                 // UNSAFE(@ohsayan): all pieces of data are upgraded by now, so vacuum
