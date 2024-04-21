@@ -15,6 +15,7 @@ skyd is the Skytable database server daemon and can be used to serve database re
 
 Commands:
   repair                        Check and repair any detected database storage errors
+  compact                       Force optimize all database files
 
 Flags:
   -h, --help                    Display this help menu and exit.

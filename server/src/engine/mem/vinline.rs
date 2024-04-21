@@ -46,6 +46,11 @@ pub struct VInline<const N: usize, T> {
     c: usize,
 }
 
+#[cfg(test)]
+unsafe impl<const N: usize, T: Send> Send for VInline<N, T> {}
+#[cfg(test)]
+unsafe impl<const N: usize, T: Sync> Sync for VInline<N, T> {}
+
 impl<const N: usize, T> VInline<N, T> {
     #[inline(always)]
     pub const fn new() -> Self {

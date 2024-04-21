@@ -36,6 +36,11 @@ pub struct EntityID {
     el: usize,
 }
 
+#[cfg(test)]
+unsafe impl Send for EntityID {}
+#[cfg(test)]
+unsafe impl Sync for EntityID {}
+
 impl EntityID {
     pub fn new(space: &str, entity: &str) -> Self {
         let mut space = ManuallyDrop::new(space.to_owned().into_boxed_str().into_boxed_bytes());

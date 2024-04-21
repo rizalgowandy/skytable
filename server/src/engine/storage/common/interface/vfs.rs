@@ -329,19 +329,28 @@ impl VirtualFS {
     pub fn fs_rename(&mut self, from: &str, to: &str) -> IoResult<()> {
         // get file data
         let data = self.with_file(from, |f| Ok(f.data.clone()))?;
-        // create new file
-        let file = self.fs_fopen_or_create_rw(to)?;
-        match file {
-            FileOpen::Created(c) => self.with_file_mut(&c.0, |f| Ok(f.data = data))?,
-            FileOpen::Existing(c) => self.with_file_mut(&c.0, |f| {
-                f.data = data;
-                f.pos = 0;
-                f.read = false;
-                f.write = false;
-                Ok(())
-            })?,
+        // get root dir
+        let mut current = &mut self.root;
+        // process components
+        let (target, mut components) = util::split_target_and_components(to);
+        while let Some(component) = components.next() {
+            match current.get_mut(component) {
+                Some(VNode::Dir(d)) => {
+                    current = d;
+                }
+                Some(VNode::File(_)) => return err::file_in_dir_path(),
+                None => return err::dir_missing_in_path(),
+            }
         }
-        // delete old file
+        let _ = current.insert(
+            target.into(),
+            VNode::File(RwLock::new(VFile {
+                read: false,
+                write: false,
+                data,
+                pos: 0,
+            })),
+        );
         self.fs_remove_file(from)
     }
     pub fn fs_remove_file(&mut self, fpath: &str) -> IoResult<()> {
@@ -415,6 +424,7 @@ impl VirtualFS {
             root: HashMap::new(),
         }
     }
+    #[allow(unused)]
     fn fs_fopen_or_create_rw(&mut self, fpath: &str) -> IoResult<FileOpen<VFileDescriptor>> {
         // components
         let (target_file, components) = util::split_target_and_components(fpath);

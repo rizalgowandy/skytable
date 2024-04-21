@@ -49,7 +49,7 @@ use {
             idx::{IndexBaseSpec, IndexSTSeqCns, MTIndex, STIndex},
             mem::RawStr,
             storage::{
-                common::interface::fs::FileSystem,
+                common::interface::fs::{FSContext, FileSystem},
                 v2::{impls::mdl_journal::StdModelBatch, raw::journal::JournalSettings},
                 BatchStats, ModelDriver,
             },
@@ -76,6 +76,7 @@ fn initialize_or_reopen_model_driver(name: &str, mdl_uuid: Uuid) -> Model {
                 std::io::ErrorKind::AlreadyExists => {
                     ModelDriver::open_model_driver(mdl.data(), name, JournalSettings::default())
                         .unwrap()
+                        .0
                 }
                 _ => panic!("{e}"),
             },
@@ -166,6 +167,9 @@ fn emulate_skewed<U: Sized, T: Sized, const N: usize>(
 
 #[test]
 fn skewed_insert_update_upsert_delete() {
+    FileSystem::set_context(FSContext::Local);
+    let mut fs = FileSystem::instance();
+    fs.mark_file_for_removal("skewed_insert_update_upsert_delete");
     emulate_skewed(
         "skewed_insert_update_upsert_delete",
         |model| {
@@ -293,6 +297,9 @@ fn skewed_insert_update_upsert_delete() {
 
 #[test]
 fn skewed_upsert() {
+    FileSystem::set_context(FSContext::Local);
+    let mut fs = FileSystem::instance();
+    fs.mark_file_for_removal("skewed_upsert");
     fn add_delta(version: u64, field_id_ptr: RawStr, pwd: &str, ds: &DeltaState, g: &Guard) {
         let row = Row::new(
             PrimaryIndexKey::try_from_dc(Datacell::new_str("sayan".into()).into()).unwrap(),

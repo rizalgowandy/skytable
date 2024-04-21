@@ -107,7 +107,7 @@ pub trait HeaderV1Spec {
 */
 
 #[repr(align(8))]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct HeaderV1<H: HeaderV1Spec> {
     // 1 magic block
     magic_header_version: HeaderVersion,

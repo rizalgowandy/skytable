@@ -30,7 +30,7 @@
 
 use {
     super::{
-        raw::{JournalSettings, RawJournalAdapterEvent},
+        raw::{JournalHeuristics, JournalSettings, RawJournalAdapterEvent},
         BatchAdapter, BatchAdapterSpec, BatchDriver, DispatchFn, EventLogAdapter, EventLogDriver,
         EventLogSpec,
     },
@@ -110,8 +110,9 @@ impl EventLogSpec for TestDBAdapter {
     type GlobalState = TestDB;
     type EventMeta = TestEvent;
     type DecodeDispatch = [DispatchFn<TestDB>; 3];
+    type FullSyncCtx<'a> = &'a Self::GlobalState;
     const DECODE_DISPATCH: Self::DecodeDispatch = [
-        |db, payload| {
+        |db, _, payload| {
             if payload.len() < sizeof!(u64) {
                 Err(StorageError::RawJournalDecodeEventCorruptedMetadata.into())
             } else {
@@ -127,15 +128,24 @@ impl EventLogSpec for TestDBAdapter {
                 }
             }
         },
-        |db, _| {
+        |db, _, _| {
             let _ = db._mut().pop();
             Ok(())
         },
-        |db, _| {
+        |db, _, _| {
             db._mut().clear();
             Ok(())
         },
     ];
+    fn rewrite_log<'a>(
+        writer: &mut RawJournalWriter<EventLogAdapter<Self>>,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        for key in ctx._ref().iter() {
+            writer.commit_event(EventPush(&key))?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -173,7 +183,7 @@ fn open_log() -> (
     super::raw::RawJournalWriter<EventLogAdapter<TestDBAdapter>>,
 ) {
     let db = TestDB::default();
-    let log = open_journal("jrnl", &db, JournalSettings::default()).unwrap();
+    let (log, _) = open_journal("jrnl", &db, JournalSettings::default()).unwrap();
     (db, log)
 }
 
@@ -326,6 +336,14 @@ impl BatchAdapterSpec for BatchDBAdapter {
     type BatchMetadata = ();
     type CommitContext = Rc<RefCell<BatchContext>>;
     type BatchState = BatchState;
+    type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn consolidate_batch<'a>(
+        writer: &mut RawJournalWriter<BatchAdapter<Self>>,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        let len = ctx._ref().data.len();
+        writer.commit_event(BatchDBFlush(&ctx._ref(), len))
+    }
     fn initialize_batch_state(_: &Self::GlobalState) -> Self::BatchState {
         BatchState {
             pending_inserts: vec![],
@@ -347,6 +365,7 @@ impl BatchAdapterSpec for BatchDBAdapter {
         f: &mut TrackedReaderContext<Self::Spec>,
         _: &Self::BatchMetadata,
         event_type: Self::EventType,
+        _: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         match event_type {
             BatchEventType::EarlyExit => unreachable!(),
@@ -362,6 +381,7 @@ impl BatchAdapterSpec for BatchDBAdapter {
         bs: Self::BatchState,
         _: Self::BatchMetadata,
         gs: &Self::GlobalState,
+        _: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         for event in bs.pending_inserts {
             gs._mut().data.push(event);
@@ -382,7 +402,8 @@ fn batch_simple() {
     }
     {
         let db = BatchDB::new();
-        let mut batch_drv = BatchAdapter::open("mybatch", &db, JournalSettings::default()).unwrap();
+        let (mut batch_drv, _) =
+            BatchAdapter::open("mybatch", &db, JournalSettings::default()).unwrap();
         db.push(&mut batch_drv, "key3").unwrap();
         db.push(&mut batch_drv, "key4").unwrap();
         assert_eq!(db._ref().data, ["key1", "key2", "key3", "key4"]);
@@ -390,7 +411,8 @@ fn batch_simple() {
     }
     {
         let db = BatchDB::new();
-        let mut batch_drv = BatchAdapter::open("mybatch", &db, JournalSettings::default()).unwrap();
+        let (mut batch_drv, _) =
+            BatchAdapter::open("mybatch", &db, JournalSettings::default()).unwrap();
         db.push(&mut batch_drv, "key5").unwrap();
         db.push(&mut batch_drv, "key6").unwrap();
         assert_eq!(
@@ -401,7 +423,7 @@ fn batch_simple() {
     }
     {
         let db = BatchDB::new();
-        let mut batch_drv =
+        let (mut batch_drv, _) =
             BatchAdapter::<BatchDBAdapter>::open("mybatch", &db, JournalSettings::default())
                 .unwrap();
         assert_eq!(

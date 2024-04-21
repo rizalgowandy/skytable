@@ -24,4 +24,34 @@
  *
 */
 
+use crate::engine::{
+    fractal::test_utils::TestGlobal,
+    ql::{
+        ast::{self, traits::ASTNode},
+        tests::lex_insecure,
+    },
+};
+
+mod gns;
 mod model_driver;
+
+fn exec<'a, N: ASTNode<'a>, T>(
+    global: &TestGlobal,
+    query: &'a str,
+    and_then: impl FnOnce(&TestGlobal, N) -> T,
+) -> T {
+    self::exec_step(global, query, 2, and_then)
+}
+
+fn exec_step<'a, N: ASTNode<'a>, T>(
+    global: &TestGlobal,
+    query: &'a str,
+    step: usize,
+    and_then: impl FnOnce(&TestGlobal, N) -> T,
+) -> T {
+    let tokens = lex_insecure(query.as_bytes()).unwrap();
+    let query: N =
+        ast::parse_ast_node_full(unsafe { core::mem::transmute(&tokens[step..]) }).unwrap();
+    let r = and_then(global, query);
+    r
+}

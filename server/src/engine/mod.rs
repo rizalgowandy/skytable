@@ -202,3 +202,7 @@ pub fn finish(g: fractal::Global) {
 pub fn repair() -> RuntimeResult<()> {
     storage::repair()
 }
+
+pub fn compact() -> RuntimeResult<()> {
+    storage::compact()
+}

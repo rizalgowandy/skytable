@@ -46,7 +46,7 @@ use {
                 v2::raw::{
                     journal::{
                         self, BatchAdapter, BatchAdapterSpec, BatchDriver, JournalAdapterEvent,
-                        JournalSettings, RawJournalAdapter,
+                        JournalHeuristics, JournalSettings, JournalStats, RawJournalAdapter,
                     },
                     spec::ModelDataBatchAofV1,
                 },
@@ -64,13 +64,32 @@ use {
     },
 };
 
+pub type ModelAdapter = BatchAdapter<ModelDataAdapter>;
+
+#[cfg(test)]
+local! {
+    static BATCH_INFO: Vec<BatchInfo> = Vec::new();
+}
+
+#[cfg(test)]
+#[derive(Debug, PartialEq)]
+pub struct BatchInfo {
+    pub items_count: usize,
+    pub redundant_count: usize,
+}
+
+#[cfg(test)]
+pub fn get_last_batch_run_info() -> Vec<BatchInfo> {
+    local_mut!(BATCH_INFO, |info| core::mem::take(info))
+}
+
 pub type ModelDriver = BatchDriver<ModelDataAdapter>;
 impl ModelDriver {
     pub fn open_model_driver(
         mdl: &ModelData,
         model_data_file_path: &str,
         settings: JournalSettings,
-    ) -> RuntimeResult<Self> {
+    ) -> RuntimeResult<(Self, JournalStats)> {
         journal::open_journal(model_data_file_path, mdl, settings)
     }
     /// Create a new event log
@@ -333,17 +352,10 @@ impl<'a> FullModel<'a> {
     pub fn new(model: &'a ModelData) -> Self {
         Self(model)
     }
-}
-
-impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for FullModel<'a> {
-    fn md(&self) -> u64 {
-        BatchType::Standard.dscr_u64()
-    }
-    fn write_direct(
+    fn write<const ZERO: bool>(
         self,
-        f: &mut TrackedWriter<<BatchAdapter<ModelDataAdapter> as RawJournalAdapter>::Spec>,
-        _: Rc<RefCell<BatchStats>>,
-    ) -> RuntimeResult<()> {
+        f: &mut TrackedWriter<ModelDataBatchAofV1>,
+    ) -> Result<(), crate::engine::fractal::error::Error> {
         let g = pin();
         let mut row_writer: RowWriter<'_> = RowWriter { f };
         let index = self.0.primary_index().__raw_index();
@@ -356,7 +368,14 @@ impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for FullModel<'a> {
         row_writer.write_row_global_metadata(self.0)?;
         for (key, row_data) in index.mt_iter_kv(&g) {
             let row_data = row_data.read();
-            row_writer.write_row_metadata(DataDeltaKind::Insert, row_data.get_txn_revised())?;
+            row_writer.write_row_metadata(
+                DataDeltaKind::Insert,
+                if ZERO {
+                    DeltaVersion::genesis()
+                } else {
+                    row_data.get_txn_revised()
+                },
+            )?;
             row_writer.write_row_pk(key)?;
             row_writer.write_row_data(self.0, &row_data)?;
         }
@@ -365,6 +384,19 @@ impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for FullModel<'a> {
             .f
             .dtrack_write(&current_row_count.u64_bytes_le())?;
         Ok(())
+    }
+}
+
+impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for FullModel<'a> {
+    fn md(&self) -> u64 {
+        BatchType::Standard.dscr_u64()
+    }
+    fn write_direct(
+        self,
+        f: &mut TrackedWriter<<BatchAdapter<ModelDataAdapter> as RawJournalAdapter>::Spec>,
+        _: Rc<RefCell<BatchStats>>,
+    ) -> RuntimeResult<()> {
+        self.write::<false>(f)
     }
 }
 
@@ -434,6 +466,20 @@ impl BatchStats {
     }
 }
 
+struct ModelConslidation<'a>(&'a ModelData);
+impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for ModelConslidation<'a> {
+    fn md(&self) -> u64 {
+        BatchType::Standard.dscr_u64()
+    }
+    fn write_direct(
+        self,
+        f: &mut TrackedWriter<<BatchAdapter<ModelDataAdapter> as RawJournalAdapter>::Spec>,
+        _: <BatchAdapter<ModelDataAdapter> as RawJournalAdapter>::CommitContext,
+    ) -> RuntimeResult<()> {
+        FullModel(self.0).write::<true>(f)
+    }
+}
+
 impl BatchAdapterSpec for ModelDataAdapter {
     type Spec = ModelDataBatchAofV1;
     type GlobalState = ModelData;
@@ -442,6 +488,20 @@ impl BatchAdapterSpec for ModelDataAdapter {
     type BatchMetadata = BatchMetadata;
     type BatchState = BatchRestoreState;
     type CommitContext = Rc<RefCell<BatchStats>>;
+    type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn consolidate_batch<'a>(
+        writer: &mut ModelDriver,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        /*
+            a batch consolidation is our opportunity to fully reset version counters to genesis (+1 because of fetch add).
+            basically after the compaction "all events already happened" and the next event to happen will have ID 1
+        */
+        writer.commit_with_ctx(ModelConslidation(ctx), BatchStats::new())?;
+        ctx.delta_state()
+            .__set_delta_version(DeltaVersion::__new(1));
+        Ok(())
+    }
     fn is_early_exit(event_type: &Self::EventType) -> bool {
         EventType::EarlyExit.eq(event_type)
     }
@@ -473,6 +533,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
         f: &mut TrackedReaderContext<Self::Spec>,
         batch_info: &Self::BatchMetadata,
         event_type: Self::EventType,
+        _: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         // get txn id
         let txn_id = u64::from_le_bytes(f.read_block()?);
@@ -520,6 +581,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
         batch_state: Self::BatchState,
         batch_md: Self::BatchMetadata,
         gs: &Self::GlobalState,
+        heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         /*
             go over each change in this batch, resolve conflicts and then apply to global state
@@ -529,6 +591,9 @@ impl BatchAdapterSpec for ModelDataAdapter {
         let p_index = gs.primary_index().__raw_index();
         let m = gs;
         let mut real_last_txn_id = DeltaVersion::genesis();
+        let mut redundant_records = 0;
+        #[cfg(test)]
+        let ev_count = batch_state.events.len();
         for DecodedBatchEvent { txn_id, pk, kind } in batch_state.events {
             match kind {
                 DecodedBatchEventKind::Insert(new_row)
@@ -550,6 +615,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
                             FIXME(@ohsayan): try and trace this somehow, overall in an effort to ensure consistency (and be able to clearly test
                             it)
                         */
+                        redundant_records += 1;
                         let popped_row_txn_revised = popped_row.d_data().read().get_txn_revised();
                         if popped_row_txn_revised > txn_id {
                             // the row present is actually newer. in this case we resolve deltas and go to the next txn ID
@@ -601,6 +667,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
                         due to the concurrent nature of the engine, deletes can "appear before" an insert or update and since
                         we don't store deleted txn ids, we just put this in a pending list.
                     */
+                    redundant_records += 1;
                     match pending_delete.entry(pk) {
                         HMEntry::Occupied(mut existing_delete) => {
                             if *existing_delete.get() > txn_id {
@@ -652,6 +719,14 @@ impl BatchAdapterSpec for ModelDataAdapter {
         // +1 since it is a fetch add!
         m.delta_state()
             .__set_delta_version(DeltaVersion::__new(real_last_txn_id.value_u64() + 1));
+        heuristics.report_additional_redundant_records(redundant_records);
+        #[cfg(test)]
+        {
+            local_mut!(BATCH_INFO, |info| info.push(BatchInfo {
+                items_count: ev_count,
+                redundant_count: redundant_records
+            }))
+        }
         Ok(())
     }
 }

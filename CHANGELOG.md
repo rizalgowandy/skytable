@@ -15,6 +15,8 @@ All changes in this project will be noted in this file.
     - `UPDATE`: `UPD`
     - `DELETE`: `DEL`
   - Added new `UPSERT` (shorthand: `UPS`) query
+  - Auto-compaction of journal(s) on boot
+  - Allow manual compaction with `skyd compact` subcommand
 - CLI:
   - Enable setting custom history file location using the `SKYSH_HISTORY_FILE` environment variable
 
@@ -25,6 +27,7 @@ All changes in this project will be noted in this file.
     to be terminated without yielding an error
   - Fixed SE bug that resulted in unsafe cleanup of journals when multiple failures occur in sequence
   - Fixed SE memory management bug in delta diff algorithm: In rare cases, a crash might occur on startup (*only during startup* and *not* at runtime)
+  - Fixed DCL command `sysctl alter user` not working properly (preventing change of any data)
 - CLI:
   - Fixed transient history file location. History is now always saved to $HOME/.sky_history
 

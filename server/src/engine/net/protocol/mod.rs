@@ -82,7 +82,7 @@ pub struct ClientLocalState {
 }
 
 impl ClientLocalState {
-    pub fn new(username: Box<str>, root: bool, hs: handshake::CHandshakeStatic) -> Self {
+    fn new(username: Box<str>, root: bool, hs: handshake::CHandshakeStatic) -> Self {
         Self {
             username,
             root,
@@ -104,6 +104,20 @@ impl ClientLocalState {
     }
     pub fn get_cs(&self) -> Option<&str> {
         self.cs.as_deref()
+    }
+    #[cfg(test)]
+    pub fn test_new(username: &str, root: bool) -> Self {
+        Self::new(
+            username.into(),
+            root,
+            self::handshake::CHandshakeStatic::new(
+                HandshakeVersion::Original,
+                ProtocolVersion::Original,
+                DataExchangeMode::QueryTime,
+                QueryMode::Bql1,
+                AuthMode::Password,
+            ),
+        )
     }
 }
 

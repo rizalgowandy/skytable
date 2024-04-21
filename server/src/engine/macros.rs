@@ -410,6 +410,7 @@ macro_rules! local_mut {
     }};
 }
 
+#[cfg(test)]
 macro_rules! local_ref {
     ($ident:ident, $call:expr) => {{
         #[inline(always)]
@@ -463,4 +464,12 @@ macro_rules! e {
 
 macro_rules! l {
     (let $($name:ident),* = $($expr:expr),*) => { let ($($name),*) = ($($expr),*); }
+}
+
+macro_rules! iff {
+    ($if:expr, $then:expr) => {
+        if $if {
+            $then
+        }
+    };
 }

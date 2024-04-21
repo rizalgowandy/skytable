@@ -67,7 +67,7 @@ pub enum FileSpecifier {
     ModelData = 1,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HeaderImplV2;
 impl sdss::sdss_r1::HeaderV1Spec for HeaderImplV2 {
     type FileClass = FileClass;

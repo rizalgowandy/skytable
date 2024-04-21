@@ -61,7 +61,7 @@ fn journal_open_close() {
     }
     {
         // second boot
-        let mut j = open_journal::<SimpleDBJournal>(
+        let (mut j, _) = open_journal::<SimpleDBJournal>(
             JOURNAL_NAME,
             &SimpleDB::new(),
             JournalSettings::default(),
@@ -106,7 +106,7 @@ fn journal_open_close() {
     }
     {
         // third boot
-        let mut j = open_journal::<SimpleDBJournal>(
+        let (mut j, _) = open_journal::<SimpleDBJournal>(
             JOURNAL_NAME,
             &SimpleDB::new(),
             JournalSettings::default(),
@@ -191,9 +191,10 @@ fn journal_with_server_single_event() {
     {
         let db = SimpleDB::new();
         // second boot
-        let mut j = open_journal::<SimpleDBJournal>(JOURNAL_NAME, &db, JournalSettings::default())
-            .set_dmsg_fn(|| format!("{:?}", debug_get_trace()))
-            .unwrap();
+        let (mut j, _) =
+            open_journal::<SimpleDBJournal>(JOURNAL_NAME, &db, JournalSettings::default())
+                .set_dmsg_fn(|| format!("{:?}", debug_get_trace()))
+                .unwrap();
         assert_eq!(db.data().len(), 1);
         assert_eq!(db.data()[0], "hello world");
         assert_eq!(
@@ -242,7 +243,7 @@ fn journal_with_server_single_event() {
     {
         // third boot
         let db = SimpleDB::new();
-        let mut j =
+        let (mut j, _) =
             open_journal::<SimpleDBJournal>(JOURNAL_NAME, &db, JournalSettings::default()).unwrap();
         assert_eq!(db.data().len(), 1);
         assert_eq!(db.data()[0], "hello world");
@@ -314,7 +315,7 @@ fn multi_boot() {
     }
     {
         let mut db = SimpleDB::new();
-        let mut j =
+        let (mut j, _) =
             open_journal::<SimpleDBJournal>("multiboot", &db, JournalSettings::default()).unwrap();
         assert_eq!(db.data().as_ref(), vec!["key_a".to_string()]);
         db.clear(&mut j).unwrap();
@@ -323,7 +324,7 @@ fn multi_boot() {
     }
     {
         let db = SimpleDB::new();
-        let mut j =
+        let (mut j, _) =
             open_journal::<SimpleDBJournal>("multiboot", &db, JournalSettings::default()).unwrap();
         assert_eq!(db.data().as_ref(), vec!["myfinkey".to_string()]);
         RawJournalWriter::close_driver(&mut j).unwrap();

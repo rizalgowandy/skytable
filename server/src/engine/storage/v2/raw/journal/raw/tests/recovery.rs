@@ -147,7 +147,7 @@ fn journal_open(
     journal_id: &str,
     db: &SimpleDB,
 ) -> RuntimeResult<RawJournalWriter<SimpleDBJournal>> {
-    open_journal(journal_id, db, JournalSettings::default())
+    open_journal(journal_id, db, JournalSettings::default()).map(|(jw, _)| jw)
 }
 
 #[derive(Debug)]

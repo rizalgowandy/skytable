@@ -335,6 +335,16 @@ impl<
         const CHECKSUM_WRITTEN_IF_BLOCK_ERROR: bool,
     > TrackedWriter<S, SIZE, PANIC_IF_UNFLUSHED, CHECKSUM_WRITTEN_IF_BLOCK_ERROR>
 {
+    pub fn new_full(f_d: File, f_md: S::Metadata, t_cursor: u64, t_checksum: SCrc64) -> Self {
+        Self {
+            f_d,
+            f_md,
+            t_cursor,
+            t_checksum,
+            t_partial_checksum: SCrc64::new(),
+            buf: FixedVec::allocate(),
+        }
+    }
     fn available_capacity(&self) -> usize {
         self.buf.remaining_capacity()
     }
@@ -351,6 +361,12 @@ impl<
     }
     pub fn __zero_buffer(&mut self) {
         self.buf.clear()
+    }
+    pub fn get_md(&self) -> &S::Metadata {
+        &self.f_md
+    }
+    pub fn checksum_state(&self) -> SCrc64 {
+        self.t_checksum.clone()
     }
 }
 
