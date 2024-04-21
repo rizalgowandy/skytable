@@ -410,6 +410,7 @@ macro_rules! local_mut {
     }};
 }
 
+#[cfg(test)]
 macro_rules! local_ref {
     ($ident:ident, $call:expr) => {{
         #[inline(always)]

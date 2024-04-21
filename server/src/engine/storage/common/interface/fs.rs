@@ -42,18 +42,46 @@ use {
     },
 };
 
-pub struct FileSystem {}
+pub struct FileSystem {
+    remove_file_list: Vec<String>,
+}
+
+#[cfg(test)]
+local! { static CTX: FSContext = FSContext::Virtual; }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[cfg(test)]
 pub enum FSContext {
     Local,
     Virtual,
 }
 
+#[cfg(test)]
 impl FileSystem {
+    pub const fn instance() -> Self {
+        Self {
+            remove_file_list: vec![],
+        }
+    }
+    pub fn mark_file_for_removal(&mut self, fname: &str) {
+        self.remove_file_list.push(fname.to_owned());
+    }
+    pub fn set_context(ctx: FSContext) {
+        local_mut!(CTX, |ctx_| *ctx_ = ctx)
+    }
     fn context() -> FSContext {
-        local! { static CTX: FSContext = FSContext::Virtual; }
         local_ref!(CTX, |ctx| *ctx)
+    }
+}
+
+#[cfg(test)]
+impl Drop for FileSystem {
+    fn drop(&mut self) {
+        for file in self.remove_file_list.drain(..) {
+            if FileSystem::remove_file(&file).is_err() {
+                trace!("failed to remove {file}");
+            }
+        }
     }
 }
 

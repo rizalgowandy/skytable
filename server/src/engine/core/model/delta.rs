@@ -121,6 +121,10 @@ impl DeltaState {
     pub fn schema_current_version(&self) -> DeltaVersion {
         DeltaVersion(self.schema_current_version)
     }
+    #[cfg(test)]
+    pub fn data_current_version(&self) -> DeltaVersion {
+        DeltaVersion(self.data_current_version.load(Ordering::Acquire))
+    }
     pub fn unresolved_append_field_add(&mut self, field_name: RawStr) {
         self.__schema_append_unresolved_delta(SchemaDeltaPart::field_add(field_name));
     }

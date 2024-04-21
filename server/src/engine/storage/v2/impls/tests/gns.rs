@@ -32,6 +32,7 @@ use crate::engine::{
     idx::STIndex,
     net::protocol::ClientLocalState,
     storage::{
+        common::interface::fs::{FSContext, FileSystem},
         v2::{
             impls::gns_log::{self, ReadEventTracing},
             raw::journal,
@@ -43,6 +44,9 @@ use crate::engine::{
 
 #[test]
 fn compaction_test() {
+    FileSystem::set_context(FSContext::Local);
+    let mut fs = FileSystem::instance();
+    fs.mark_file_for_removal("compaction_test_gns");
     let global = TestGlobal::new_with_driver_id("compaction_test_gns");
     // create a space
     super::exec(
@@ -107,6 +111,7 @@ fn compaction_test() {
         GNSDriver::close_driver(&mut new_jrnl).unwrap();
     }
     let tg = thread::spawn(|| {
+        FileSystem::set_context(FSContext::Local);
         let tg = TestGlobal::new_with_driver_id("compaction_test_gns");
         assert_eq!(
             gns_log::get_tracing(),

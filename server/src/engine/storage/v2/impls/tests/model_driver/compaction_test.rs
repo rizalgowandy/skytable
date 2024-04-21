@@ -30,7 +30,10 @@ use {
         data::lit::Lit,
         fractal::{test_utils::TestGlobal, GlobalInstanceLike},
         storage::{
-            common::paths_v1,
+            common::{
+                interface::fs::{FSContext, FileSystem},
+                paths_v1,
+            },
             v2::{
                 impls::mdl_journal::{self, BatchInfo},
                 raw::journal,
@@ -43,26 +46,31 @@ use {
 
 #[test]
 fn compaction_test() {
+    FileSystem::set_context(FSContext::Local);
+    let mut fs = FileSystem::instance();
+    fs.mark_file_for_removal("compaction_test_model");
     let driver_path;
     {
         /*
             create a model and apply 2000 events to it, with 1:1 redundancy ratio
         */
-        let global = TestGlobal::new_with_driver_id_instant_update("compaction_test");
+        let global = TestGlobal::new_with_driver_id_instant_update("compaction_test_model");
         super::create_model_and_space(
             &global,
-            "create model compaction_test.compaction_test(username: string, password: string)",
+            "create model compaction_test_model.compaction_test_model(username: string, password: string)",
         )
         .unwrap();
         for (key, val) in super::create_test_kv_strings(1000) {
             super::run_insert(
                 &global,
-                &format!("insert into compaction_test.compaction_test('{key}', '{val}')"),
+                &format!(
+                    "insert into compaction_test_model.compaction_test_model('{key}', '{val}')"
+                ),
             )
             .unwrap();
             super::run_update(
                 &global,
-                &format!("update compaction_test.compaction_test set password = 'password' where username = '{key}'"),
+                &format!("update compaction_test_model.compaction_test_model set password = 'password' where username = '{key}'"),
             )
             .unwrap()
         }
@@ -76,20 +84,23 @@ fn compaction_test() {
                 .namespace()
                 .idx()
                 .read()
-                .get("compaction_test")
+                .get("compaction_test_model")
                 .unwrap()
                 .get_uuid();
             let mut idx_models = global.state().namespace().idx_models().write();
             let mdl = idx_models
-                .get_mut(&EntityIDRef::new("compaction_test", "compaction_test"))
+                .get_mut(&EntityIDRef::new(
+                    "compaction_test_model",
+                    "compaction_test_model",
+                ))
                 .unwrap();
             let mut driver = mdl.driver().batch_driver().lock();
             let orig_driver = driver.take();
             // now we want to compact this
             driver_path = paths_v1::model_path(
-                "compaction_test",
+                "compaction_test_model",
                 space_uuid,
-                "compaction_test",
+                "compaction_test_model",
                 mdl.data().get_uuid(),
             );
             let new_jrnl =
@@ -103,7 +114,7 @@ fn compaction_test() {
         for (k, v) in (1001..=1002).map(|i| super::create_test_kv(i, 1000)) {
             super::run_insert(
                 &global,
-                &format!("insert into compaction_test.compaction_test('{k}', '{v}')"),
+                &format!("insert into compaction_test_model.compaction_test_model('{k}', '{v}')"),
             )
             .unwrap();
         }
@@ -116,7 +127,8 @@ fn compaction_test() {
     let global = thread::Builder::new()
         .stack_size(16 * 1024 * 1024)
         .spawn(move || {
-            let global = TestGlobal::new_with_driver_id("compaction_test");
+            FileSystem::set_context(FSContext::Local);
+            let global = TestGlobal::new_with_driver_id("compaction_test_model");
             let last_batch_runs = mdl_journal::get_last_batch_run_info();
             assert_eq!(
                 last_batch_runs,
@@ -142,7 +154,10 @@ fn compaction_test() {
         .unwrap();
     let models = global.state().namespace().idx_models().read();
     let mdl = models
-        .get(&EntityIDRef::new("compaction_test", "compaction_test"))
+        .get(&EntityIDRef::new(
+            "compaction_test_model",
+            "compaction_test_model",
+        ))
         .unwrap();
     assert_eq!(mdl.data().primary_index().count(), 1002);
     let pin = pin();
@@ -174,7 +189,6 @@ fn compaction_test() {
     */
     let kv_1001 = super::create_test_kv(1001, 1000);
     let kv_1002 = super::create_test_kv(1002, 1000);
-
     let row_1001 = mdl
         .data()
         .primary_index()
@@ -211,4 +225,8 @@ fn compaction_test() {
         kv_1002.1
     );
     assert_eq!(row_1002.get_txn_revised().value_u64(), 2);
+    assert_eq!(
+        mdl.data().delta_state().data_current_version().value_u64(),
+        3
+    ); // this is important! the next row must get (compaction:id0, insert(row1001):id1, insert(row1002):id2) id3
 }

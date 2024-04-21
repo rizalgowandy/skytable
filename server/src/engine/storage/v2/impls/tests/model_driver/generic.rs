@@ -30,6 +30,7 @@ use {
             core::{index::RowData, EntityIDRef},
             data::lit::Lit,
             fractal::{test_utils::TestGlobal, GlobalInstanceLike},
+            storage::common::interface::fs::{FSContext, FileSystem},
         },
         util::test_utils,
     },
@@ -201,6 +202,10 @@ fn run_sample_updates<K, V>(
 
 #[test]
 fn empty_model_data() {
+    FileSystem::set_context(FSContext::Local);
+    let mut fs = FileSystem::instance();
+    fs.mark_file_for_removal("empty_model_data_variable_index_key");
+    fs.mark_file_for_removal("empty_model_data_fixed_index_key");
     create_and_close(
         "empty_model_data_variable_index_key",
         "create model milky_way.solar_system(planet_name: string, population: uint64)",
@@ -213,6 +218,10 @@ fn empty_model_data() {
 
 #[test]
 fn model_data_inserts() {
+    FileSystem::set_context(FSContext::Local);
+    let mut fs = FileSystem::instance();
+    fs.mark_file_for_removal("model_data_inserts_variable_pk");
+    fs.mark_file_for_removal("model_data_inserts_fixed_pk");
     run_sample_inserts(
         "model_data_inserts_variable_pk",
         "create model apps.social(user_name: string, password: string)",
@@ -234,6 +243,10 @@ fn model_data_inserts() {
 #[test]
 #[cfg(not(all(target_os = "windows", target_pointer_width = "32")))]
 fn model_data_updates() {
+    FileSystem::set_context(FSContext::Local);
+    let mut fs = FileSystem::instance();
+    fs.mark_file_for_removal("model_data_updates_variable_key");
+    fs.mark_file_for_removal("model_data_updates_fixed_key");
     run_sample_updates(
         "model_data_updates_variable_key",
         "create model apps.social(user_name: string, password: string)",
