@@ -64,6 +64,29 @@ use {
     GNS event log impl
 */
 
+#[cfg(test)]
+local! {
+    static EVENT_TRACING: ReadEventTracing = ReadEventTracing { total: 0, repeat: 0 };
+    static EXECUTED_EVENTS: usize = 0;
+}
+
+#[cfg(test)]
+pub fn get_executed_event_count() -> usize {
+    local_mut!(EXECUTED_EVENTS, |ev| core::mem::take(ev))
+}
+
+#[cfg(test)]
+pub fn get_tracing() -> ReadEventTracing {
+    local_mut!(EVENT_TRACING, |tracing| core::mem::take(tracing))
+}
+
+#[cfg(test)]
+#[derive(Debug, Default, PartialEq)]
+pub struct ReadEventTracing {
+    pub total: usize,
+    pub repeat: usize,
+}
+
 pub type GNSDriver = EventLogDriver<GNSEventLog>;
 #[derive(Debug)]
 pub struct GNSEventLog;
@@ -95,7 +118,8 @@ macro_rules! make_dispatch {
     ($($obj:ty => $f:expr),* $(,)?) => {
         [$(|gs, heuristics, payload| {
             fn _c<F: Fn(&mut JournalHeuristics)>(f: F, heuristics: &mut JournalHeuristics) { f(heuristics) }
-            <$obj as crate::engine::storage::common_encoding::r1::impls::gns::GNSEvent>::decode_apply(gs, payload)?; _c($f, heuristics); Ok(())
+            <$obj as crate::engine::storage::common_encoding::r1::impls::gns::GNSEvent>::decode_apply(gs, payload)?; _c($f, heuristics);
+            #[cfg(test)] { local_mut!(EVENT_TRACING, |tracing| {tracing.total += 1; tracing.repeat = heuristics.get_current_redundant()}) } Ok(())
         }),*]
     }
 }
@@ -163,6 +187,10 @@ impl<T: GNSEvent> JournalAdapterEvent<EventLogAdapter<GNSEventLog>> for T {
         <T as GNSTransaction>::CODE.dscr_u64()
     }
     fn write_buffered(self, b: &mut Vec<u8>, _: ()) {
+        #[cfg(test)]
+        {
+            local_mut!(EXECUTED_EVENTS, |ev| *ev += 1);
+        }
         T::encode_event(self, b)
     }
 }

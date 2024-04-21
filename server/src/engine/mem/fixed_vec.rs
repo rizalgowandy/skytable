@@ -46,6 +46,9 @@ pub struct FixedVec<T, const CAP: usize> {
     l: usize,
 }
 
+unsafe impl<T: Send, const CAP: usize> Send for FixedVec<T, CAP> {}
+unsafe impl<T: Sync, const CAP: usize> Sync for FixedVec<T, CAP> {}
+
 impl<T, const CAP: usize> Default for FixedVec<T, CAP> {
     fn default() -> Self {
         Self::allocate()

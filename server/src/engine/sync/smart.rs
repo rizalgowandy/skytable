@@ -245,6 +245,11 @@ pub struct RawRC<T> {
     rc_data: NonNull<RawRCData<T>>,
 }
 
+#[cfg(test)]
+unsafe impl<T: Send> Send for RawRC<T> {}
+#[cfg(test)]
+unsafe impl<T: Sync> Sync for RawRC<T> {}
+
 #[derive(Debug)]
 struct RawRCData<T> {
     rc: AtomicUsize,

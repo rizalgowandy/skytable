@@ -945,6 +945,10 @@ impl JournalHeuristics {
     pub fn report_new_redundant_record(&mut self) {
         self.report_additional_redundant_records(1)
     }
+    #[cfg(test)]
+    pub fn get_current_redundant(&self) -> usize {
+        self.redundant_records
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

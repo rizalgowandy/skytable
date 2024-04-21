@@ -40,6 +40,7 @@ use {
         RuntimeResult,
     },
     parking_lot::RwLock,
+    std::sync::atomic::{AtomicUsize, Ordering},
 };
 
 /// A `test` mode global implementation
@@ -48,6 +49,7 @@ pub struct TestGlobal {
     lp_queue: RwLock<Vec<Task<GenericTask>>>,
     max_delta_size: usize,
     health: GlobalHealth,
+    model_net_commited_events: AtomicUsize,
 }
 
 impl TestGlobal {
@@ -57,10 +59,28 @@ impl TestGlobal {
             lp_queue: RwLock::default(),
             max_delta_size: usize::MAX,
             health: GlobalHealth::new(),
+            model_net_commited_events: AtomicUsize::new(0),
         }
+    }
+    pub fn finish_into_driver(mut self) -> (GNSData, GNSDriver) {
+        self.__close_all_model_drivers();
+        let gns = core::mem::replace(
+            &mut self.gns,
+            GlobalNS::new(
+                GNSData::empty(),
+                FractalGNSDriver::new(GNSDriver::create_gns_with_name("xxxx").unwrap()),
+            ),
+        );
+        drop(self);
+        FileSystem::remove_file("xxxx").unwrap();
+        let (data, drv) = gns.into_inner();
+        (data, drv.txn_driver.into_inner())
     }
     pub fn set_max_data_pressure(&mut self, max_data_pressure: usize) {
         self.max_delta_size = max_data_pressure;
+    }
+    pub fn get_net_commited_events(&self) -> usize {
+        self.model_net_commited_events.load(Ordering::Acquire)
     }
     /// Normally, model drivers are not loaded on startup because of shared global state. Calling this will attempt to load
     /// all model drivers
@@ -82,6 +102,28 @@ impl TestGlobal {
             model.driver().initialize_model_driver(driver);
         }
         Ok(())
+    }
+    fn __close_all_model_drivers(&mut self) {
+        for (_, model) in self.gns.namespace().idx_models().write().iter_mut() {
+            let delta_count = model
+                .data()
+                .delta_state()
+                .__fractal_take_full_from_data_delta(super::FractalToken::new());
+            self.model_net_commited_events
+                .fetch_add(delta_count, Ordering::Release);
+            if delta_count != 0 {
+                let mut drv = model.driver().batch_driver().lock();
+                drv.as_mut()
+                    .unwrap()
+                    .commit_with_ctx(
+                        StdModelBatch::new(model.data(), delta_count),
+                        BatchStats::new(),
+                    )
+                    .unwrap();
+            }
+            ModelDriver::close_driver(&mut model.driver().batch_driver().lock().as_mut().unwrap())
+                .unwrap()
+        }
     }
 }
 
@@ -128,6 +170,8 @@ impl GlobalInstanceLike for TestGlobal {
                     .get(&EntityIDRef::new(mdl_id.space(), mdl_id.model()))
                     .unwrap();
                 let mut mdl_driver = mdl.driver().batch_driver().lock();
+                self.model_net_commited_events
+                    .fetch_add(count, Ordering::Release);
                 mdl_driver
                     .as_mut()
                     .unwrap()
@@ -175,24 +219,10 @@ impl GlobalInstanceLike for TestGlobal {
 
 impl Drop for TestGlobal {
     fn drop(&mut self) {
-        let mut txn_driver = self.gns.gns_driver().txn_driver.lock();
-        GNSDriver::close_driver(&mut txn_driver).unwrap();
-        for (_, model) in self.gns.namespace().idx_models().write().drain() {
-            let delta_count = model
-                .data()
-                .delta_state()
-                .__fractal_take_full_from_data_delta(super::FractalToken::new());
-            if delta_count != 0 {
-                let mut drv = model.driver().batch_driver().lock();
-                drv.as_mut()
-                    .unwrap()
-                    .commit_with_ctx(
-                        StdModelBatch::new(model.data(), delta_count),
-                        BatchStats::new(),
-                    )
-                    .unwrap();
-            }
-            model.into_driver().close().unwrap();
+        {
+            let mut txn_driver = self.gns.gns_driver().txn_driver.lock();
+            GNSDriver::close_driver(&mut txn_driver).unwrap();
         }
+        self.__close_all_model_drivers();
     }
 }

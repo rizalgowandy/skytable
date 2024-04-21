@@ -24,5 +24,69 @@
  *
 */
 
+use crate::engine::{
+    core::{dml, model::ModelData, space::Space, EntityID},
+    error::QueryResult,
+    fractal::test_utils::TestGlobal,
+    ql::{
+        ast,
+        ddl::crt::{CreateModel, CreateSpace},
+        dml::{ins::InsertStatement, upd::UpdateStatement},
+        tests::lex_insecure,
+    },
+};
+
+mod compaction_test;
 mod generic;
 mod skew;
+
+/*
+    utils
+*/
+
+const TEST_DATASET_SIZE: usize = 1000;
+const TEST_UPDATE_DATASET_SIZE: usize = 8200; // this peculiar size to force the buffer to flush
+
+fn create_test_kv_strings(count: usize) -> Vec<(String, String)> {
+    (1..=count).map(|i| create_test_kv(i, count)).collect()
+}
+
+fn create_test_kv(i: usize, width: usize) -> (String, String) {
+    (
+        format!("user-{i:0>width$}"),
+        format!("password-{i:0>width$}"),
+    )
+}
+
+fn create_test_kv_int(change_count: usize) -> Vec<(u64, String)> {
+    (0..change_count)
+        .map(|i| (i as u64, format!("password-{i:0>change_count$}")))
+        .collect()
+}
+
+fn create_model_and_space(global: &TestGlobal, create_model: &str) -> QueryResult<EntityID> {
+    let tokens = lex_insecure(create_model.as_bytes()).unwrap();
+    let create_model: CreateModel = ast::parse_ast_node_full(&tokens[2..]).unwrap();
+    let mdl_name = EntityID::new(
+        create_model.model_name.space(),
+        create_model.model_name.entity(),
+    );
+    // first create space
+    let create_space_str = format!("create space {}", create_model.model_name.space());
+    let create_space_tokens = lex_insecure(create_space_str.as_bytes()).unwrap();
+    let create_space: CreateSpace = ast::parse_ast_node_full(&create_space_tokens[2..]).unwrap();
+    Space::transactional_exec_create(global, create_space)?;
+    ModelData::transactional_exec_create(global, create_model).map(|_| mdl_name)
+}
+
+fn run_insert(global: &TestGlobal, insert: &str) -> QueryResult<()> {
+    let tokens = lex_insecure(insert.as_bytes()).unwrap();
+    let insert: InsertStatement = ast::parse_ast_node_full(&tokens[1..]).unwrap();
+    dml::insert(global, insert)
+}
+
+fn run_update(global: &TestGlobal, update: &str) -> QueryResult<()> {
+    let tokens = lex_insecure(update.as_bytes()).unwrap();
+    let insert: UpdateStatement = ast::parse_ast_node_full(&tokens[1..]).unwrap();
+    dml::update(global, insert)
+}

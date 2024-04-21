@@ -81,6 +81,10 @@ impl GlobalNS {
     pub fn gns_driver(&self) -> &FractalGNSDriver {
         &self.driver
     }
+    #[cfg(test)]
+    pub fn into_inner(self) -> (GNSData, FractalGNSDriver) {
+        (self.data, self.driver)
+    }
 }
 
 #[derive(Debug)]

@@ -15,6 +15,7 @@ All changes in this project will be noted in this file.
     - `UPDATE`: `UPD`
     - `DELETE`: `DEL`
   - Added new `UPSERT` (shorthand: `UPS`) query
+  - Auto-compaction of journal(s) on boot
 - CLI:
   - Enable setting custom history file location using the `SKYSH_HISTORY_FILE` environment variable
 

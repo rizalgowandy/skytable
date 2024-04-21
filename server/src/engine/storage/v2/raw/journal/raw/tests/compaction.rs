@@ -205,8 +205,8 @@ impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Insert<'a> {
         buf: &mut Vec<u8>,
         _: <CompactDBAdapter as RawJournalAdapter>::CommitContext,
     ) {
-        buf.extend(&self.0.len().to_le_bytes());
-        buf.extend(&self.1.len().to_le_bytes());
+        buf.extend(&(self.0.len() as u64).to_le_bytes());
+        buf.extend(&(self.1.len() as u64).to_le_bytes());
         buf.extend(self.0.as_bytes());
         buf.extend(self.1.as_bytes());
     }
@@ -222,8 +222,8 @@ impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Update<'a> {
         buf: &mut Vec<u8>,
         _: <CompactDBAdapter as RawJournalAdapter>::CommitContext,
     ) {
-        buf.extend(&self.0.len().to_le_bytes());
-        buf.extend(&self.1.len().to_le_bytes());
+        buf.extend(&(self.0.len() as u64).to_le_bytes());
+        buf.extend(&(self.1.len() as u64).to_le_bytes());
         buf.extend(self.0.as_bytes());
         buf.extend(self.1.as_bytes());
     }
@@ -239,7 +239,7 @@ impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Remove<'a> {
         buf: &mut Vec<u8>,
         _: <CompactDBAdapter as RawJournalAdapter>::CommitContext,
     ) {
-        buf.extend(&self.0.len().to_le_bytes());
+        buf.extend(&(self.0.len() as u64).to_le_bytes());
         buf.extend(self.0.as_bytes());
     }
 }
