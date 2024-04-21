@@ -47,8 +47,8 @@ mod raw;
 #[cfg(test)]
 mod tests;
 pub use raw::{
-    create_journal, open_journal, repair_journal, JournalHeuristics, JournalRepairMode,
-    JournalSettings, JournalStats, RawJournalAdapter,
+    compact_journal, create_journal, open_journal, repair_journal, JournalHeuristics,
+    JournalRepairMode, JournalSettings, JournalStats, RawJournalAdapter,
     RawJournalAdapterEvent as JournalAdapterEvent, RepairResult,
 };
 
@@ -70,19 +70,25 @@ pub struct EventLogAdapter<EL: EventLogSpec>(PhantomData<EL>);
 type DispatchFn<G> = fn(&G, &mut JournalHeuristics, Vec<u8>) -> RuntimeResult<()>;
 
 /// Specification for an event log
-pub trait EventLogSpec {
+pub trait EventLogSpec: Sized {
     /// the SDSS spec for this log
     type Spec: FileSpecV1;
     /// the global state for this log
     type GlobalState;
     /// event metadata
     type EventMeta: TaggedEnum<Dscr = u8>;
+    type FullSyncCtx<'a>;
     type DecodeDispatch: Index<usize, Output = DispatchFn<Self::GlobalState>>;
     const DECODE_DISPATCH: Self::DecodeDispatch;
     const ENSURE: () = assert!(
         (mem::size_of::<Self::DecodeDispatch>() / mem::size_of::<DispatchFn<Self::GlobalState>>())
             == Self::EventMeta::VARIANT_COUNT as usize
     );
+    /// make a full rewrite of the event log
+    fn rewrite_log<'a>(
+        writer: &mut RawJournalWriter<EventLogAdapter<Self>>,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()>;
 }
 
 impl<EL: EventLogSpec> RawJournalAdapter for EventLogAdapter<EL> {
@@ -95,12 +101,19 @@ impl<EL: EventLogSpec> RawJournalAdapter for EventLogAdapter<EL> {
     type Context<'a> = () where Self: 'a;
     type EventMeta = <EL as EventLogSpec>::EventMeta;
     type CommitContext = ();
+    type FullSyncCtx<'a> = EL::FullSyncCtx<'a>;
     fn initialize(_: &raw::JournalInitializer) -> Self {
         Self(PhantomData)
     }
     fn enter_context<'a>(_: &'a mut RawJournalWriter<Self>) -> Self::Context<'a> {}
     fn parse_event_meta(meta: u64) -> Option<Self::EventMeta> {
         <<EL as EventLogSpec>::EventMeta as TaggedEnum>::try_from_raw(meta as u8)
+    }
+    fn rewrite_full_journal<'a>(
+        writer: &mut RawJournalWriter<Self>,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        EL::rewrite_log(writer, ctx)
     }
     fn commit_direct<'a, E>(
         &mut self,
@@ -195,7 +208,7 @@ impl<BA: BatchAdapterSpec> BatchAdapter<BA> {
 ///
 /// NB: This trait's impl is fairly complex and is going to require careful handling to get it right. Also, the event has to have
 /// a specific on-disk layout: `[EXPECTED COMMIT][ANY ADDITIONAL METADATA][BATCH BODY][ACTUAL COMMIT]`
-pub trait BatchAdapterSpec {
+pub trait BatchAdapterSpec: Sized {
     /// the SDSS spec for this journal
     type Spec: FileSpecV1;
     /// global state used for syncing events
@@ -210,6 +223,7 @@ pub trait BatchAdapterSpec {
     type BatchState;
     /// commit context
     type CommitContext;
+    type FullSyncCtx<'a>;
     /// return true if the given event tag indicates an early exit
     fn is_early_exit(event_type: &Self::EventType) -> bool;
     /// initialize the batch state
@@ -236,6 +250,11 @@ pub trait BatchAdapterSpec {
         gs: &Self::GlobalState,
         heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()>;
+    /// Consolidate all records into one batch
+    fn consolidate_batch<'a>(
+        writer: &mut RawJournalWriter<BatchAdapter<Self>>,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()>;
 }
 
 impl<BA: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<BA> {
@@ -245,6 +264,13 @@ impl<BA: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<BA> {
     type Context<'a> = () where Self: 'a;
     type EventMeta = <BA as BatchAdapterSpec>::BatchType;
     type CommitContext = <BA as BatchAdapterSpec>::CommitContext;
+    type FullSyncCtx<'a> = BA::FullSyncCtx<'a>;
+    fn rewrite_full_journal<'a>(
+        writer: &mut RawJournalWriter<Self>,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        BA::consolidate_batch(writer, ctx)
+    }
     fn initialize(_: &raw::JournalInitializer) -> Self {
         Self(PhantomData)
     }

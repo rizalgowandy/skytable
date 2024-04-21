@@ -442,6 +442,13 @@ impl BatchAdapterSpec for ModelDataAdapter {
     type BatchMetadata = BatchMetadata;
     type BatchState = BatchRestoreState;
     type CommitContext = Rc<RefCell<BatchStats>>;
+    type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn consolidate_batch<'a>(
+        writer: &mut ModelDriver,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        writer.commit_with_ctx(FullModel(ctx), BatchStats::new())
+    }
     fn is_early_exit(event_type: &Self::EventType) -> bool {
         EventType::EarlyExit.eq(event_type)
     }

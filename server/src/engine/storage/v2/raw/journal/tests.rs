@@ -110,6 +110,7 @@ impl EventLogSpec for TestDBAdapter {
     type GlobalState = TestDB;
     type EventMeta = TestEvent;
     type DecodeDispatch = [DispatchFn<TestDB>; 3];
+    type FullSyncCtx<'a> = &'a Self::GlobalState;
     const DECODE_DISPATCH: Self::DecodeDispatch = [
         |db, _, payload| {
             if payload.len() < sizeof!(u64) {
@@ -136,6 +137,15 @@ impl EventLogSpec for TestDBAdapter {
             Ok(())
         },
     ];
+    fn rewrite_log<'a>(
+        writer: &mut RawJournalWriter<EventLogAdapter<Self>>,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        for key in ctx._ref().iter() {
+            writer.commit_event(EventPush(&key))?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -326,6 +336,14 @@ impl BatchAdapterSpec for BatchDBAdapter {
     type BatchMetadata = ();
     type CommitContext = Rc<RefCell<BatchContext>>;
     type BatchState = BatchState;
+    type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn consolidate_batch<'a>(
+        writer: &mut RawJournalWriter<BatchAdapter<Self>>,
+        ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        let len = ctx._ref().data.len();
+        writer.commit_event(BatchDBFlush(&ctx._ref(), len))
+    }
     fn initialize_batch_state(_: &Self::GlobalState) -> Self::BatchState {
         BatchState {
             pending_inserts: vec![],

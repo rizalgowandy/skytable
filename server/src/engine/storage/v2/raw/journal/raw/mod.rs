@@ -31,11 +31,11 @@ use {
     crate::{
         engine::{
             error::{ErrorKind, StorageError, TransactionError},
-            fractal::error::Error,
+            fractal::{context, error::Error},
             mem::unsafe_apis::memcpy,
             storage::common::{
                 checksum::SCrc64,
-                interface::fs::FileWriteExt,
+                interface::fs::{File, FileExt, FileSystem, FileWriteExt},
                 sdss::sdss_r1::{
                     rw::{SdssFile, TrackedReader, TrackedWriter},
                     FileSpecV1,
@@ -105,6 +105,77 @@ where
 {
     let log = SdssFile::<J::Spec>::open(log_path)?;
     RawJournalReader::<J>::repair(log, gs, settings, repair_mode).map(|(lost, ..)| lost)
+}
+
+pub fn compact_journal<'a, const LOG: bool, J: RawJournalAdapter>(
+    original_journal_path: &str,
+    mut original_journal: RawJournalWriter<J>,
+    full_sync_ctx: J::FullSyncCtx<'a>,
+) -> RuntimeResult<RawJournalWriter<J>>
+where
+    <J as RawJournalAdapter>::Spec: FileSpecV1<DecodeArgs = (), EncodeArgs = ()>,
+    <<J as RawJournalAdapter>::Spec as FileSpecV1>::Metadata: Clone,
+{
+    /*
+        (1) safely close journal currently pointed to
+        ---
+        we might suffer a memory blowup or whatever and this might cause unsafe cleanup of the journal. hence,
+        we want to make sure that the good journal is not touched until we are fully sure of the status
+    */
+    context::set_dmsg("closing current journal");
+    iff!(LOG, info!("safely closing journal {original_journal_path}"));
+    RawJournalWriter::close_driver(&mut original_journal)?;
+    drop(original_journal);
+    /*
+        (2) create intermediate journal
+    */
+    let temporary_journal_path = format!("{original_journal_path}-compacted");
+    iff!(
+        LOG,
+        info!(
+            "beginning compaction of journal {original_journal_path} into {temporary_journal_path}"
+        )
+    );
+    context::set_dmsg("creating new journal for compaction");
+    let mut intermediary_jrnl = create_journal::<J>(&temporary_journal_path)?;
+    /*
+        (3) sync all optimized records to intermediate
+    */
+    context::set_dmsg("syncing optimized journal");
+    iff!(
+        LOG,
+        info!("syncing optimized journal into {temporary_journal_path}")
+    );
+    J::rewrite_full_journal(&mut intermediary_jrnl, full_sync_ctx)?;
+    /*
+        (4) temporarily close new file descriptor
+    */
+    context::set_dmsg("temporarily closing descriptor of new compaction target");
+    let compacted_jrnl_state = intermediary_jrnl.close_and_cleanup()?;
+    /*
+        (5) point to new journal
+    */
+    context::set_dmsg("pointing {temporary_journal_path} to {original_journal_path}");
+    iff!(LOG, info!("updating currently active journal"));
+    FileSystem::rename(&temporary_journal_path, original_journal_path)?;
+    /*
+        (6) reopen
+        ---
+        resume state, only verify I/O stream position
+    */
+    context::set_dmsg("reopening compacted journal and restoring state");
+    let jrnl = RawJournalWriter::<J>::load_using_backup(
+        J::initialize(&JournalInitializer::new(
+            compacted_jrnl_state.log_file_cursor,
+            compacted_jrnl_state.log_file_checksum.clone(),
+            compacted_jrnl_state.adapter_txn_id,
+            compacted_jrnl_state.adapter_known_txn_offset,
+        )),
+        original_journal_path,
+        compacted_jrnl_state,
+    )?;
+    iff!(LOG, info!("successfully compacted {original_journal_path}"));
+    Ok(jrnl)
 }
 
 #[derive(Debug)]
@@ -310,6 +381,12 @@ pub trait RawJournalAdapter: Sized {
     type CommitContext;
     /// a type representing the event kind
     type EventMeta;
+    /// the context needed for a full sync of the journal into a (possibly) new intermediary journal
+    type FullSyncCtx<'a>;
+    fn rewrite_full_journal<'a>(
+        writer: &mut RawJournalWriter<Self>,
+        full_ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()>;
     /// initialize this adapter
     fn initialize(j_: &JournalInitializer) -> Self;
     /// get a write context
@@ -534,6 +611,35 @@ pub(super) enum DriverEventKind {
     +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 */
 
+pub struct JournalWriterStateBackup<J: RawJournalAdapter> {
+    log_file_md: <<J as RawJournalAdapter>::Spec as FileSpecV1>::Metadata,
+    log_file_cursor: u64,
+    log_file_checksum: SCrc64,
+    adapter_txn_id: u64,
+    adapter_known_txn_id: u64,
+    adapter_known_txn_offset: u64,
+}
+
+impl<J: RawJournalAdapter> JournalWriterStateBackup<J> {
+    fn new(
+        log_file_md: <<J as RawJournalAdapter>::Spec as FileSpecV1>::Metadata,
+        log_file_cursor: u64,
+        log_file_checksum: SCrc64,
+        adapter_txn_id: u64,
+        adapter_known_txn_id: u64,
+        adapter_known_txn_offset: u64,
+    ) -> Self {
+        Self {
+            log_file_md,
+            log_file_cursor,
+            log_file_checksum,
+            adapter_txn_id,
+            adapter_known_txn_id,
+            adapter_known_txn_offset,
+        }
+    }
+}
+
 /// A low-level journal writer
 pub struct RawJournalWriter<J: RawJournalAdapter> {
     j: J,
@@ -541,6 +647,60 @@ pub struct RawJournalWriter<J: RawJournalAdapter> {
     txn_id: u64,
     known_txn_id: u64,
     known_txn_offset: u64, // if offset is 0, txn id is unset
+}
+
+impl<J: RawJournalAdapter> RawJournalWriter<J> {
+    /// _Forget_ this journal, returning information about the journal's state that can be used to restore the current state later
+    /// using [`Self::load_using_backup`]
+    ///
+    /// **☢☢ WARNING ☢☢** The journal is **never closed** when this is called. Only the file descriptor is.
+    fn close_and_cleanup(mut self) -> RuntimeResult<JournalWriterStateBackup<J>>
+    where
+        <<J as RawJournalAdapter>::Spec as FileSpecV1>::Metadata: Clone,
+    {
+        // fsync + verify cursor
+        self.log_file.flush_sync()?;
+        self.log_file.verify_cursor()?;
+        Ok(JournalWriterStateBackup::new(
+            self.log_file.get_md().clone(),
+            self.log_file.cursor(),
+            self.log_file.checksum_state(),
+            self.txn_id,
+            self.known_txn_id,
+            self.known_txn_offset,
+        ))
+    }
+    /// Restore the journal state due after temporary closure of descriptor.
+    ///
+    /// **☢☢ WARNING ☢☢** The journal is **never reopened** when this is called. Only the file descriptor is.
+    fn load_using_backup(
+        adapter: J,
+        journal_path: &str,
+        JournalWriterStateBackup {
+            log_file_md,
+            log_file_cursor,
+            log_file_checksum,
+            adapter_txn_id,
+            adapter_known_txn_id,
+            adapter_known_txn_offset,
+        }: JournalWriterStateBackup<J>,
+    ) -> RuntimeResult<Self>
+    where
+        <J as RawJournalAdapter>::Spec: FileSpecV1<DecodeArgs = ()>,
+    {
+        let mut f = File::open(journal_path)?;
+        f.f_seek_start(log_file_cursor)?;
+        let mut log_file =
+            TrackedWriter::<J::Spec>::new_full(f, log_file_md, log_file_cursor, log_file_checksum);
+        log_file.verify_cursor()?;
+        Ok(Self {
+            j: adapter,
+            log_file,
+            txn_id: adapter_txn_id,
+            known_txn_id: adapter_known_txn_id,
+            known_txn_offset: adapter_known_txn_offset,
+        })
+    }
 }
 
 impl<J: RawJournalAdapter + fmt::Debug> fmt::Debug for RawJournalWriter<J>
@@ -787,9 +947,22 @@ impl JournalHeuristics {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Recommendation {
+    NoActionNeeded,
+    CompactDrvHighRatio,
+    CompactRedHighRatio,
+}
+
+impl Recommendation {
+    pub const fn needs_compaction(&self) -> bool {
+        matches!(self, Self::CompactDrvHighRatio | Self::CompactRedHighRatio)
+    }
+}
+
 impl JournalStats {
     /// Returns true if a compaction would be prudent
-    pub fn compaction_recommended(&self) -> bool {
+    pub fn recommended_action(&self) -> Recommendation {
         let minimum_file_size_compaction_trigger: usize = if cfg!(test) {
             (DriverEvent::FULL_EVENT_SIZE * 10) + self.header
         } else {
@@ -803,9 +976,15 @@ impl JournalStats {
         } else {
             (self.heuristics.redundant_records as f64 / self.server_events as f64) * 100.00
         };
-        self.file_size >= minimum_file_size_compaction_trigger
-            && (driver_event_percentage >= server_event_percentage
-                || redundant_record_percentage >= 10.0)
+        if self.file_size >= minimum_file_size_compaction_trigger {
+            if driver_event_percentage >= server_event_percentage {
+                return Recommendation::CompactDrvHighRatio;
+            }
+            if redundant_record_percentage >= 10.0 {
+                return Recommendation::CompactRedHighRatio;
+            }
+        }
+        Recommendation::NoActionNeeded
     }
     fn new<J: RawJournalAdapter>() -> Self {
         Self {

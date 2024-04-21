@@ -31,8 +31,10 @@ use {
     },
     crate::{
         engine::{
-            core::GNSData,
+            core::{model::Model, EntityID, GNSData},
+            fractal::context,
             storage::{
+                common::{interface::fs::FileSystem, paths_v1},
                 common_encoding::r1::impls::gns::GNSEvent,
                 v1,
                 v2::raw::journal::{
@@ -40,14 +42,17 @@ use {
                     JournalStats,
                 },
             },
-            txn::gns::{
-                model::{
-                    AlterModelAddTxn, AlterModelRemoveTxn, AlterModelUpdateTxn, CreateModelTxn,
-                    DropModelTxn,
+            txn::{
+                gns::{
+                    model::{
+                        AlterModelAddTxn, AlterModelRemoveTxn, AlterModelUpdateTxn, CreateModelTxn,
+                        DropModelTxn,
+                    },
+                    space::{AlterSpaceTxn, CreateSpaceTxn, DropSpaceTxn},
+                    sysctl::{AlterUserTxn, CreateUserTxn, DropUserTxn},
+                    GNSTransaction, GNSTransactionCode,
                 },
-                space::{AlterSpaceTxn, CreateSpaceTxn, DropSpaceTxn},
-                sysctl::{AlterUserTxn, CreateUserTxn, DropUserTxn},
-                GNSTransaction, GNSTransactionCode,
+                SpaceIDRef,
             },
             RuntimeResult,
         },
@@ -95,12 +100,46 @@ macro_rules! make_dispatch {
     }
 }
 
+pub fn reinit_full<const INIT_DIRS: bool>(
+    gns_driver: &mut GNSDriver,
+    gns: &GNSData,
+    for_each_model: impl Fn(&EntityID, &Model) -> RuntimeResult<()>,
+) -> RuntimeResult<()> {
+    // create all spaces
+    context::set_dmsg("creating all spaces");
+    for (space_name, space) in gns.idx().read().iter() {
+        if INIT_DIRS {
+            FileSystem::create_dir_all(&paths_v1::space_dir(space_name, space.get_uuid()))?;
+        }
+        gns_driver.commit_event(CreateSpaceTxn::new(space.props(), &space_name, space))?;
+    }
+    // create all users
+    context::set_dmsg("creating all users");
+    for (user_name, user) in gns.sys_db().users().read().iter() {
+        gns_driver.commit_event(CreateUserTxn::new(&user_name, user.hash()))?;
+    }
+    // create all models
+    context::set_dmsg("creating all models");
+    for (model_id, model) in gns.idx_models().read().iter() {
+        let model_data = model.data();
+        let space_uuid = gns.idx().read().get(model_id.space()).unwrap().get_uuid();
+        for_each_model(model_id, model)?;
+        gns_driver.commit_event(CreateModelTxn::new(
+            SpaceIDRef::with_uuid(model_id.space(), space_uuid),
+            model_id.entity(),
+            model_data,
+        ))?;
+    }
+    Ok(())
+}
+
 impl EventLogSpec for GNSEventLog {
     type Spec = SystemDatabaseV1;
     type GlobalState = GNSData;
     type EventMeta = GNSTransactionCode;
     type DecodeDispatch = [fn(&GNSData, &mut JournalHeuristics, Vec<u8>) -> RuntimeResult<()>;
         GNSTransactionCode::VARIANT_COUNT];
+    type FullSyncCtx<'a> = &'a GNSData;
     const DECODE_DISPATCH: Self::DecodeDispatch = make_dispatch![
         CreateSpaceTxn => |_| {},
         AlterSpaceTxn => |h| h.report_new_redundant_record(),
@@ -114,6 +153,9 @@ impl EventLogSpec for GNSEventLog {
         AlterUserTxn => |h| h.report_new_redundant_record(),
         DropUserTxn => |h| h.report_new_redundant_record(),
     ];
+    fn rewrite_log<'a>(writer: &mut GNSDriver, ctx: Self::FullSyncCtx<'a>) -> RuntimeResult<()> {
+        reinit_full::<false>(writer, ctx, |_, _| Ok(()))
+    }
 }
 
 impl<T: GNSEvent> JournalAdapterEvent<EventLogAdapter<GNSEventLog>> for T {

@@ -35,7 +35,7 @@ use {
                         self,
                         raw::{
                             CommitPreference, JournalInitializer, RawJournalAdapterEvent,
-                            RawJournalWriter,
+                            RawJournalWriter, Recommendation,
                         },
                         JournalHeuristics, JournalSettings, JournalStats, RawJournalAdapter,
                     },
@@ -124,12 +124,20 @@ impl RawJournalAdapter for CompactDBAdapter {
     type Context<'a> = ();
     type CommitContext = ();
     type EventMeta = CompactDBEventKind;
+    type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn rewrite_full_journal<'a>(
+        writer: &mut RawJournalWriter<Self>,
+        full_ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        for (key, val) in full_ctx.data.read().iter() {
+            writer.commit_event(Insert(&key, &val))?;
+        }
+        Ok(())
+    }
     fn initialize(_: &JournalInitializer) -> Self {
         Self
     }
-    fn enter_context<'a>(_: &'a mut RawJournalWriter<Self>) -> Self::Context<'a> {
-        ()
-    }
+    fn enter_context<'a>(_: &'a mut RawJournalWriter<Self>) -> Self::Context<'a> {}
     fn parse_event_meta(meta: u64) -> Option<Self::EventMeta> {
         CompactDBEventKind::try_from_raw(meta as _)
     }
@@ -245,21 +253,54 @@ fn genkv(i: usize) -> (String, String) {
 
 #[test]
 fn server_events_only() {
-    let mut jrnl = jinit("server_events_only_compact").unwrap();
-    RawJournalWriter::close_driver(&mut jrnl).unwrap();
-    drop(jrnl); // net drv: 1
-    let (mut jrnl, stat) = jload(&CompactDB::default(), "server_events_only_compact").unwrap();
-    RawJournalWriter::close_driver(&mut jrnl).unwrap();
-    drop(jrnl); // net drv: 1 + 2 = 3
-    assert!(!stat.compaction_recommended());
-    // we need to create 4 more cycles
-    for _ in 0..4 {
-        let (mut jrnl, stat) = jload(&CompactDB::default(), "server_events_only_compact").unwrap();
-        assert!(!stat.compaction_recommended());
+    {
+        // create and close; net srv = 1
+        let mut jrnl = jinit("server_events_only_compact").unwrap();
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+        drop(jrnl);
+    }
+    {
+        // we need to create 5 more cycles; net srv = 1 + (2 * 5) = 11 (10 is our threshold)
+        for _ in 0..5 {
+            let (mut jrnl, stat) =
+                jload(&CompactDB::default(), "server_events_only_compact").unwrap();
+            assert_eq!(stat.recommended_action(), Recommendation::NoActionNeeded);
+            RawJournalWriter::close_driver(&mut jrnl).unwrap();
+        }
+    }
+    // see that we need to compact
+    let db = CompactDB::default();
+    let jrnl;
+    {
+        let (jrnl_, stat) = jload(&db, "server_events_only_compact").unwrap();
+        assert_eq!(
+            stat.recommended_action(),
+            Recommendation::CompactDrvHighRatio
+        );
+        jrnl = jrnl_;
+    }
+    {
+        // run a compaction
+        let mut jrnl = journal::compact_journal::<true, CompactDBAdapter>(
+            "server_events_only_compact",
+            jrnl,
+            &db,
+        )
+        .unwrap();
+        // commit an event
+        jrnl.commit_event(Insert("hello", "world")).unwrap();
         RawJournalWriter::close_driver(&mut jrnl).unwrap();
     }
-    let (_, stat) = jload(&CompactDB::default(), "server_events_only_compact").unwrap();
-    assert!(stat.compaction_recommended());
+    {
+        // load db again
+        let db = CompactDB::default();
+        let (_, stat) = jload(&db, "server_events_only_compact").unwrap();
+        assert_eq!(stat.recommended_action(), Recommendation::NoActionNeeded);
+        assert_eq!(
+            *db.data.read(),
+            into_dict! { "hello".to_owned() => "world".to_owned() }
+        );
+    }
 }
 
 #[test]
@@ -275,15 +316,16 @@ fn do_not_compact_unique() {
     RawJournalWriter::close_driver(&mut jrnl).unwrap();
     drop(jrnl);
     let (_, stat) = jload(&cdb, "do_not_compact_unique").unwrap();
-    assert!(!stat.compaction_recommended());
+    assert_eq!(stat.recommended_action(), Recommendation::NoActionNeeded);
 }
 
 #[test]
 fn compact_because_duplicate() {
     /*
-        we create multiple overlapping events leading to redundancy
+        we create multiple overlapping events leading to redundancy.
+        101 keys are created, key with 99 is removed. so we have 100 keys in total
     */
-    let mut jrnl = jinit("do_not_compact_unique").unwrap();
+    let mut jrnl = jinit("compact_because_duplicate").unwrap();
     let cdb = CompactDB::default();
     for (i, (k, v)) in (0..=100).into_iter().map(genkv).enumerate() {
         cdb.insert(&mut jrnl, k.clone(), v.clone()).unwrap();
@@ -294,34 +336,110 @@ fn compact_because_duplicate() {
             cdb.remove(&mut jrnl, k).unwrap();
         }
     }
+    assert_eq!(cdb.data.read().len(), 100);
+    drop(cdb);
     RawJournalWriter::close_driver(&mut jrnl).unwrap();
     drop(jrnl);
-    let (_, stat) = jload(&cdb, "do_not_compact_unique").unwrap();
-    assert!(stat.compaction_recommended());
+    /*
+        now reopen and get compaction recommendation
+    */
+    let cdb = CompactDB::default();
+    let (old_jrnl, stat) = jload(&cdb, "compact_because_duplicate").unwrap();
+    assert_eq!(
+        stat.recommended_action(),
+        Recommendation::CompactRedHighRatio
+    );
+    /*
+        now apply a compaction, write an event and close
+    */
+    {
+        let mut jrnl =
+            journal::compact_journal::<true, _>("compact_because_duplicate", old_jrnl, &cdb)
+                .unwrap();
+        let (new_k, new_v) = genkv(101);
+        jrnl.commit_event(Insert(&new_k, &new_v)).unwrap();
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+        drop(cdb);
+    }
+    /*
+        reopen and verify
+    */
+    {
+        let (new_k, new_v) = genkv(101);
+        let db = CompactDB::default();
+        let (_, stat) = jload(&db, "compact_because_duplicate").unwrap();
+        assert_eq!(stat.recommended_action(), Recommendation::NoActionNeeded);
+        assert_eq!(db.data.read().len(), 101);
+        assert_eq!(db.data.read().get(&new_k).unwrap(), new_v.as_str());
+    }
 }
 
 #[test]
 fn compact_because_server_event_exceeded() {
+    /*
+        instantiate journal add add keys [0,5). close.
+        - server events := 5
+        - driver events := 1
+    */
     let mut jrnl = jinit("compact_because_server_event_exceeded").unwrap();
     let db = CompactDB::default();
     for (k, v) in (0..5).into_iter().map(genkv) {
         db.insert(&mut jrnl, k, v).unwrap();
     }
     RawJournalWriter::close_driver(&mut jrnl).unwrap();
-    drop(jrnl); // 1 drv
+    drop(jrnl);
+    /*
+        in 4 rounds, add keys [5,9), reopening and closing the journal every time.
+        overall we will have:
+        - server events := 5 + 4 = 9
+        - driver events := 1 + (2 * 4) = 9
+
+        This means we will have just breached the drv ratio at the end of the loop
+    */
     for (k, v) in (5..9).into_iter().map(genkv) {
         let db = CompactDB::default();
         let (mut jrnl, stat) = jload(&db, "compact_because_server_event_exceeded").unwrap();
-        assert!(!stat.compaction_recommended());
+        assert_eq!(stat.recommended_action(), Recommendation::NoActionNeeded);
         db.insert(&mut jrnl, k, v).unwrap();
         RawJournalWriter::close_driver(&mut jrnl).unwrap();
         drop(jrnl);
     }
-    // net drv events: 1 + 4*2 = 9. net srv events = 5 + 4 = 9
-    let (_, stat) = jload(
+    /*
+        reopen the journal. we should get a compaction notification.
+    */
+    let (old_jrnl, stat) = jload(
         &CompactDB::default(),
         "compact_because_server_event_exceeded",
     )
     .unwrap();
-    assert!(stat.compaction_recommended());
+    assert_eq!(
+        stat.recommended_action(),
+        Recommendation::CompactDrvHighRatio
+    );
+    /*
+        apply compaction, add event and close. we should now have keys [0, 9] and an additional "hello" -> "world"
+    */
+    {
+        let db = CompactDB {
+            data: RwLock::new((0..9).into_iter().map(genkv).collect()),
+        };
+        let mut jrnl = journal::compact_journal::<true, _>(
+            "compact_because_server_event_exceeded",
+            old_jrnl,
+            &db,
+        )
+        .unwrap();
+        jrnl.commit_event(Insert("hello", "world")).unwrap();
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+    }
+    /*
+        reopen and verify
+    */
+    {
+        let db = CompactDB::default();
+        let (_, stat) = jload(&db, "compact_because_server_event_exceeded").unwrap();
+        assert_eq!(stat.recommended_action(), Recommendation::NoActionNeeded);
+        assert_eq!(db.data.read().len(), 10);
+        assert_eq!(db.data.read().get("hello").unwrap(), "world");
+    }
 }

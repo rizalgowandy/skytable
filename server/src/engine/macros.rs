@@ -464,3 +464,11 @@ macro_rules! e {
 macro_rules! l {
     (let $($name:ident),* = $($expr:expr),*) => { let ($($name),*) = ($($expr),*); }
 }
+
+macro_rules! iff {
+    ($if:expr, $then:expr) => {
+        if $if {
+            $then
+        }
+    };
+}

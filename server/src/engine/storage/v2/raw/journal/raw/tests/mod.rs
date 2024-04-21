@@ -30,14 +30,18 @@ mod recovery;
 
 use {
     super::{
-        create_journal, CommitPreference, DriverEvent, DriverEventKind, JournalHeuristics,
-        JournalInitializer, RawJournalAdapter, RawJournalAdapterEvent, RawJournalWriter,
+        create_journal, open_journal, CommitPreference, DriverEvent, DriverEventKind,
+        JournalHeuristics, JournalInitializer, JournalSettings, RawJournalAdapter,
+        RawJournalAdapterEvent, RawJournalWriter,
     },
     crate::engine::{
         error::StorageError,
         storage::{
             common::{checksum::SCrc64, sdss::sdss_r1::rw::TrackedReader},
-            v2::raw::spec::SystemDatabaseV1,
+            v2::raw::{
+                journal::raw::{JournalReaderTraceEvent, JournalWriterTraceEvent},
+                spec::SystemDatabaseV1,
+            },
         },
         RuntimeResult,
     },
@@ -144,12 +148,20 @@ impl RawJournalAdapter for SimpleDBJournal {
     type EventMeta = EventMeta;
     type CommitContext = ();
     type Context<'a> = () where Self: 'a;
+    type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn rewrite_full_journal<'a>(
+        writer: &mut RawJournalWriter<Self>,
+        full_ctx: Self::FullSyncCtx<'a>,
+    ) -> RuntimeResult<()> {
+        for key in full_ctx.data().iter() {
+            writer.commit_event(DbEventPush(&key))?;
+        }
+        Ok(())
+    }
     fn initialize(_: &JournalInitializer) -> Self {
         Self
     }
-    fn enter_context<'a>(_: &'a mut RawJournalWriter<Self>) -> Self::Context<'a> {
-        ()
-    }
+    fn enter_context<'a>(_: &'a mut RawJournalWriter<Self>) -> Self::Context<'a> {}
     fn parse_event_meta(meta: u64) -> Option<Self::EventMeta> {
         Some(match meta {
             0 => EventMeta::NewKey,
@@ -262,4 +274,90 @@ fn first_triplet_sanity() {
             "failed for first driver event"
         );
     }
+}
+
+#[test]
+fn jw_state() {
+    let state_backup;
+    {
+        // open
+        let mut jrnl = create_journal::<SimpleDBJournal>("jw_state_test").unwrap();
+        jrnl.commit_event(DbEventPush("hello")).unwrap();
+        // backup + destroy
+        state_backup = jrnl.close_and_cleanup().unwrap();
+        assert_eq!(
+            super::debug_get_trace(),
+            intovec![
+                JournalWriterTraceEvent::Initialized,
+                JournalWriterTraceEvent::CommitAttemptForEvent(0),
+                JournalWriterTraceEvent::CommitServerEventWroteMetadata,
+                JournalWriterTraceEvent::CommitServerEventAdapterCompleted,
+                JournalWriterTraceEvent::CommitCommitServerEventSyncCompleted,
+            ]
+        );
+    }
+    {
+        // reopen using backup
+        let mut jrnl =
+            RawJournalWriter::load_using_backup(SimpleDBJournal, "jw_state_test", state_backup)
+                .unwrap();
+        // write event + close
+        jrnl.commit_event(DbEventPush("world")).unwrap();
+        RawJournalWriter::close_driver(&mut jrnl).unwrap();
+        assert_eq!(
+            super::debug_get_trace(),
+            intovec![
+                JournalWriterTraceEvent::CommitAttemptForEvent(1),
+                JournalWriterTraceEvent::CommitServerEventWroteMetadata,
+                JournalWriterTraceEvent::CommitServerEventAdapterCompleted,
+                JournalWriterTraceEvent::CommitCommitServerEventSyncCompleted,
+                JournalWriterTraceEvent::DriverEventAttemptCommit {
+                    event: DriverEventKind::Closed,
+                    event_id: 2,
+                    prev_id: 1
+                },
+                JournalWriterTraceEvent::DriverEventCompleted,
+                JournalWriterTraceEvent::DriverClosed,
+            ]
+        );
+    }
+    // reopen and verify
+    let db = SimpleDB::new();
+    let _ =
+        open_journal::<SimpleDBJournal>("jw_state_test", &db, JournalSettings::default()).unwrap();
+    assert_eq!(db.data().as_ref(), ["hello", "world"]);
+    assert_eq!(
+        super::debug_get_trace(),
+        into_array![
+            // the first time
+            JournalReaderTraceEvent::Initialized,
+            JournalReaderTraceEvent::LookingForEvent,
+            JournalReaderTraceEvent::AttemptingEvent(0),
+            JournalReaderTraceEvent::DetectedServerEvent,
+            JournalReaderTraceEvent::ServerEventMetadataParsed,
+            JournalReaderTraceEvent::ServerEventAppliedSuccess,
+            // we closed after this and reopened to apply a server event
+            JournalReaderTraceEvent::LookingForEvent,
+            JournalReaderTraceEvent::AttemptingEvent(1),
+            JournalReaderTraceEvent::DetectedServerEvent,
+            JournalReaderTraceEvent::ServerEventMetadataParsed,
+            JournalReaderTraceEvent::ServerEventAppliedSuccess,
+            JournalReaderTraceEvent::LookingForEvent,
+            // we finally closed the log
+            JournalReaderTraceEvent::AttemptingEvent(2),
+            JournalReaderTraceEvent::DriverEventExpectingClose,
+            JournalReaderTraceEvent::DriverEventCompletedBlockRead,
+            JournalReaderTraceEvent::DriverEventExpectedCloseGotClose,
+            JournalReaderTraceEvent::ClosedAndReachedEof,
+            JournalReaderTraceEvent::Completed,
+            JournalWriterTraceEvent::ReinitializeAttempt,
+            JournalWriterTraceEvent::DriverEventAttemptCommit {
+                event: DriverEventKind::Reopened,
+                event_id: 3,
+                prev_id: 2
+            },
+            JournalWriterTraceEvent::DriverEventCompleted,
+            JournalWriterTraceEvent::ReinitializeComplete,
+        ]
+    );
 }
