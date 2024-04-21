@@ -47,9 +47,9 @@ mod raw;
 #[cfg(test)]
 mod tests;
 pub use raw::{
-    compact_journal, create_journal, open_journal, repair_journal, JournalHeuristics,
-    JournalRepairMode, JournalSettings, JournalStats, RawJournalAdapter,
-    RawJournalAdapterEvent as JournalAdapterEvent, RepairResult,
+    compact_journal, compact_journal_direct, create_journal, open_journal, read_journal,
+    repair_journal, JournalHeuristics, JournalRepairMode, JournalSettings, JournalStats,
+    RawJournalAdapter, RawJournalAdapterEvent as JournalAdapterEvent, RepairResult,
 };
 
 /*

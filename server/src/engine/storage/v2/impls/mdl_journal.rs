@@ -64,6 +64,8 @@ use {
     },
 };
 
+pub type ModelAdapter = BatchAdapter<ModelDataAdapter>;
+
 #[cfg(test)]
 local! {
     static BATCH_INFO: Vec<BatchInfo> = Vec::new();

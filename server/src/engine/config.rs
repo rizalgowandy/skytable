@@ -652,7 +652,10 @@ pub enum CLIConfigParseReturn<T> {
     Version,
     /// We yielded a config
     YieldedConfig(T),
+    /// a repair was requested
     Repair,
+    /// a compact operation was requested
+    Compact,
 }
 
 impl<T> CLIConfigParseReturn<T> {
@@ -675,13 +678,21 @@ pub fn parse_cli_args<'a, T: 'a + AsRef<str>>(
     let mut cli_args: ParsedRawArgs = HashMap::new();
     while let Some(arg) = args_iter.next() {
         let arg = arg.as_ref();
-        if arg == "repair" {
-            if args_iter.peek().is_none() {
-                return Ok(CLIConfigParseReturn::Repair);
+        let repair = arg == "repair";
+        let compact = arg == "compact";
+        if repair || compact {
+            if args_iter.peek().is_none() && cli_args.is_empty() {
+                if repair {
+                    return Ok(CLIConfigParseReturn::Repair);
+                } else if compact {
+                    return Ok(CLIConfigParseReturn::Compact);
+                }
             } else {
                 return Err(ConfigError::with_src(
                     ConfigSource::Cli,
-                    ConfigErrorKind::ErrorString("to use `repair`, just run `skyd repair`".into()),
+                    ConfigErrorKind::ErrorString(
+                        "to use a subcommand, just run `skyd <subcommand>`".into(),
+                    ),
                 )
                 .into());
             }
@@ -991,6 +1002,7 @@ pub enum ConfigReturn {
     /// A configuration that we have fully validated was provided
     Config(Configuration),
     Repair,
+    Compact,
 }
 
 impl ConfigReturn {
@@ -1087,7 +1099,7 @@ fn get_cli_from_store() -> Vec<String> {
     let src;
     #[cfg(test)]
     {
-        src = local_mut!(CLI_SRC, |args| args.take()).unwrap_or_default();
+        src = local_mut!(CLI_SRC, core::mem::take).unwrap_or_default();
     }
     #[cfg(not(test))]
     {
@@ -1110,6 +1122,7 @@ pub fn check_configuration() -> RuntimeResult<ConfigReturn> {
             // no options were provided in the CLI
             None
         }
+        CLIConfigParseReturn::Compact => return Ok(ConfigReturn::Compact),
         CLIConfigParseReturn::Help => return Ok(ConfigReturn::HelpMessage(TXT_HELP.into())),
         CLIConfigParseReturn::Version => {
             // just output the version

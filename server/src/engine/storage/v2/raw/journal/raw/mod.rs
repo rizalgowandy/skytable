@@ -65,6 +65,18 @@ where
     )
 }
 
+pub fn read_journal<J: RawJournalAdapter>(
+    log_path: &str,
+    gs: &J::GlobalState,
+    settings: JournalSettings,
+) -> RuntimeResult<JournalStats>
+where
+    J::Spec: FileSpecV1<DecodeArgs = ()>,
+{
+    let log = SdssFile::<J::Spec>::open(log_path)?;
+    RawJournalReader::<J>::scroll(log, gs, settings).map(|x| x.1)
+}
+
 /// Open an existing journal
 pub fn open_journal<J: RawJournalAdapter>(
     log_path: &str,
@@ -109,9 +121,41 @@ where
 
 pub fn compact_journal<'a, const LOG: bool, J: RawJournalAdapter>(
     original_journal_path: &str,
-    mut original_journal: RawJournalWriter<J>,
+    original_journal: RawJournalWriter<J>,
     full_sync_ctx: J::FullSyncCtx<'a>,
 ) -> RuntimeResult<RawJournalWriter<J>>
+where
+    <J as RawJournalAdapter>::Spec: FileSpecV1<DecodeArgs = (), EncodeArgs = ()>,
+    <<J as RawJournalAdapter>::Spec as FileSpecV1>::Metadata: Clone,
+{
+    compact_journal_direct::<LOG, J, _>(
+        original_journal_path,
+        Some(original_journal),
+        full_sync_ctx,
+        false,
+        |compacted_jrnl_state| {
+            context::set_dmsg("reopening compacted journal and restoring state");
+            RawJournalWriter::<J>::load_using_backup(
+                J::initialize(&JournalInitializer::new(
+                    compacted_jrnl_state.log_file_cursor,
+                    compacted_jrnl_state.log_file_checksum.clone(),
+                    compacted_jrnl_state.adapter_txn_id,
+                    compacted_jrnl_state.adapter_known_txn_offset,
+                )),
+                original_journal_path,
+                compacted_jrnl_state,
+            )
+        },
+    )
+}
+
+pub fn compact_journal_direct<'a, const LOG: bool, J: RawJournalAdapter, T>(
+    original_journal_path: &str,
+    original_journal: Option<RawJournalWriter<J>>,
+    full_sync_ctx: J::FullSyncCtx<'a>,
+    close_journal: bool,
+    f_reopen: impl Fn(JournalWriterStateBackup<J>) -> RuntimeResult<T>,
+) -> RuntimeResult<T>
 where
     <J as RawJournalAdapter>::Spec: FileSpecV1<DecodeArgs = (), EncodeArgs = ()>,
     <<J as RawJournalAdapter>::Spec as FileSpecV1>::Metadata: Clone,
@@ -122,10 +166,12 @@ where
         we might suffer a memory blowup or whatever and this might cause unsafe cleanup of the journal. hence,
         we want to make sure that the good journal is not touched until we are fully sure of the status
     */
-    context::set_dmsg("closing current journal");
-    iff!(LOG, info!("safely closing journal {original_journal_path}"));
-    RawJournalWriter::close_driver(&mut original_journal)?;
-    drop(original_journal);
+    if let Some(mut original_journal) = original_journal {
+        context::set_dmsg("closing current journal");
+        iff!(LOG, info!("safely closing journal {original_journal_path}"));
+        RawJournalWriter::close_driver(&mut original_journal)?;
+        drop(original_journal);
+    }
     /*
         (2) create intermediate journal
     */
@@ -151,7 +197,11 @@ where
         (4) temporarily close new file descriptor
     */
     context::set_dmsg("temporarily closing descriptor of new compaction target");
-    let compacted_jrnl_state = intermediary_jrnl.close_and_cleanup()?;
+    if close_journal {
+        context::set_dmsg("closing new journal");
+        RawJournalWriter::close_driver(&mut intermediary_jrnl)?;
+    }
+    let compacted_jrnl_state = intermediary_jrnl.cleanup()?;
     /*
         (5) point to new journal
     */
@@ -163,19 +213,9 @@ where
         ---
         resume state, only verify I/O stream position
     */
-    context::set_dmsg("reopening compacted journal and restoring state");
-    let jrnl = RawJournalWriter::<J>::load_using_backup(
-        J::initialize(&JournalInitializer::new(
-            compacted_jrnl_state.log_file_cursor,
-            compacted_jrnl_state.log_file_checksum.clone(),
-            compacted_jrnl_state.adapter_txn_id,
-            compacted_jrnl_state.adapter_known_txn_offset,
-        )),
-        original_journal_path,
-        compacted_jrnl_state,
-    )?;
+    let ret = f_reopen(compacted_jrnl_state)?;
     iff!(LOG, info!("successfully compacted {original_journal_path}"));
-    Ok(jrnl)
+    Ok(ret)
 }
 
 #[derive(Debug)]
@@ -654,7 +694,7 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
     /// using [`Self::load_using_backup`]
     ///
     /// **☢☢ WARNING ☢☢** The journal is **never closed** when this is called. Only the file descriptor is.
-    fn close_and_cleanup(mut self) -> RuntimeResult<JournalWriterStateBackup<J>>
+    fn cleanup(mut self) -> RuntimeResult<JournalWriterStateBackup<J>>
     where
         <<J as RawJournalAdapter>::Spec as FileSpecV1>::Metadata: Clone,
     {

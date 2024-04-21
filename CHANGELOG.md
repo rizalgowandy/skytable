@@ -16,6 +16,7 @@ All changes in this project will be noted in this file.
     - `DELETE`: `DEL`
   - Added new `UPSERT` (shorthand: `UPS`) query
   - Auto-compaction of journal(s) on boot
+  - Allow manual compaction with `skyd compact` subcommand
 - CLI:
   - Enable setting custom history file location using the `SKYSH_HISTORY_FILE` environment variable
 

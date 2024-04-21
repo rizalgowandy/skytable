@@ -43,7 +43,10 @@ use {
             fractal::{context, FractalGNSDriver},
             storage::{
                 common::paths_v1,
-                v2::raw::journal::{self, JournalRepairMode},
+                v2::{
+                    impls::{gns_log::GNSAdapter, mdl_journal::ModelAdapter},
+                    raw::journal::{self, JournalRepairMode},
+                },
             },
             txn::gns::sysctl::{AlterUserTxn, CreateUserTxn},
             RuntimeResult,
@@ -265,4 +268,43 @@ fn print_repair_info(result: RepairResult, id: &str) {
             }
         }
     }
+}
+
+pub fn compact() -> RuntimeResult<()> {
+    let gns = GNSData::empty();
+    context::set_dmsg("reading GNS");
+    let stats = journal::read_journal::<GNSAdapter>(GNS_PATH, &gns, JournalSettings::default())?;
+    if !stats.recommended_action().needs_compaction() {
+        warn!("GNS does not need compaction");
+    }
+    journal::compact_journal_direct::<true, GNSAdapter, _>(GNS_PATH, None, &gns, true, |_| Ok(()))?;
+    for (id, model) in gns.idx_models().write().iter_mut() {
+        let model_data = model.data();
+        let space_uuid = gns.idx().read().get(id.space()).unwrap().get_uuid();
+        let model_data_file_path =
+            paths_v1::model_path(id.space(), space_uuid, id.entity(), model_data.get_uuid());
+        context::set_dmsg(format!("loading model driver in {model_data_file_path}"));
+        if !journal::read_journal::<ModelAdapter>(
+            &model_data_file_path,
+            model.data(),
+            JournalSettings::default(),
+        )?
+        .recommended_action()
+        .needs_compaction()
+        {
+            warn!(
+                "model {}.{} does not need compaction",
+                id.space(),
+                id.entity()
+            );
+        }
+        journal::compact_journal_direct::<true, ModelAdapter, _>(
+            &model_data_file_path,
+            None,
+            model.data(),
+            true,
+            |_| Ok(()),
+        )?;
+    }
+    Ok(())
 }

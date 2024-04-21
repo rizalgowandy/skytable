@@ -64,6 +64,8 @@ use {
     GNS event log impl
 */
 
+pub type GNSAdapter = EventLogAdapter<GNSEventLog>;
+
 #[cfg(test)]
 local! {
     static EVENT_TRACING: ReadEventTracing = ReadEventTracing { total: 0, repeat: 0 };

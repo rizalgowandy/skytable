@@ -72,7 +72,8 @@ fn main() {
             ConfigReturn::HelpMessage(msg) => {
                 exit!(eprintln!("{msg}"), 0x00)
             }
-            ConfigReturn::Repair => return self::repair(),
+            ConfigReturn::Repair => return self::exec_subcommand("repair", engine::repair),
+            ConfigReturn::Compact => return self::exec_subcommand("compact", engine::compact),
         },
         Err(e) => exit_fatal!(error!("{e}")),
     };
@@ -141,17 +142,15 @@ fn entrypoint(config: engine::config::Configuration) {
     self::exit(global, pid_file, result);
 }
 
-fn repair() {
+fn exec_subcommand(task: &str, f: fn() -> engine::RuntimeResult<()>) {
     let (pid_file, rt) = match init() {
         Ok(init) => init,
-        Err(e) => exit_fatal!(error!("failed to start repair task: {e}")),
+        Err(e) => exit_fatal!(error!("failed to start {task} task: {e}")),
     };
     let result = rt.block_on(async move {
         engine::set_context_init("binding system signals");
         let signal = util::os::TerminationSignal::init()?;
-        let result = tokio::task::spawn_blocking(|| engine::repair())
-            .await
-            .unwrap();
+        let result = tokio::task::spawn_blocking(f).await.unwrap();
         drop(signal);
         result
     });

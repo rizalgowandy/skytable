@@ -284,7 +284,7 @@ fn jw_state() {
         let mut jrnl = create_journal::<SimpleDBJournal>("jw_state_test").unwrap();
         jrnl.commit_event(DbEventPush("hello")).unwrap();
         // backup + destroy
-        state_backup = jrnl.close_and_cleanup().unwrap();
+        state_backup = jrnl.cleanup().unwrap();
         assert_eq!(
             super::debug_get_trace(),
             intovec![
