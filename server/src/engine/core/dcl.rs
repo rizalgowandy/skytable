@@ -25,6 +25,7 @@
 */
 
 use crate::engine::{
+    core::system_db::SystemDatabase,
     data::{tag::TagClass, DictEntryGeneric},
     error::{QueryError, QueryResult},
     fractal::GlobalInstanceLike,
@@ -39,13 +40,21 @@ pub fn exec<G: GlobalInstanceLike>(
     current_user: &ClientLocalState,
     cmd: SysctlCommand,
 ) -> QueryResult<()> {
+    exec_ref(&g, current_user, cmd)
+}
+
+pub fn exec_ref<G: GlobalInstanceLike>(
+    g: &G,
+    current_user: &ClientLocalState,
+    cmd: SysctlCommand,
+) -> QueryResult<()> {
     if cmd.needs_root() & !current_user.is_root() {
         return Err(QueryError::SysPermissionDenied);
     }
     match cmd {
-        SysctlCommand::CreateUser(new) => create_user(&g, new),
-        SysctlCommand::DropUser(drop) => drop_user(&g, current_user, drop),
-        SysctlCommand::AlterUser(usermod) => alter_user(&g, current_user, usermod),
+        SysctlCommand::CreateUser(new) => create_user(g, new),
+        SysctlCommand::DropUser(drop) => drop_user(g, current_user, drop),
+        SysctlCommand::AlterUser(usermod) => alter_user(g, current_user, usermod),
         SysctlCommand::ReportStatus => {
             if g.health().status_okay() {
                 Ok(())
@@ -61,7 +70,7 @@ fn alter_user(
     cstate: &ClientLocalState,
     user: UserDecl,
 ) -> QueryResult<()> {
-    if cstate.is_root() {
+    if !cstate.is_root() || user.username() == SystemDatabase::ROOT_ACCOUNT {
         // the root password can only be changed by shutting down the server
         return Err(QueryError::SysAuthError);
     }
