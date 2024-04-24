@@ -254,7 +254,7 @@ fn prepare_bench_spec(bench: &BenchConfig) -> Vec<BenchItem> {
             "INSERT",
             BenchmarkTask::new(
                 bench.key_size,
-                |me, current| query!("insert into bench(?, ?)", me.fmt_pk(current), 0u64),
+                |me, current| query!("ins into bench(?, ?)", me.fmt_pk(current), 0u64),
                 |_, _, actual_resp| actual_resp == Response::Empty,
             ),
             bench.query_count,
@@ -263,7 +263,7 @@ fn prepare_bench_spec(bench: &BenchConfig) -> Vec<BenchItem> {
             "SELECT",
             BenchmarkTask::new(
                 bench.key_size,
-                |me, current| query!("select * from bench where un = ?", me.fmt_pk(current)),
+                |me, current| query!("sel * from bench where un = ?", me.fmt_pk(current)),
                 |me, current, resp| match resp {
                     Response::Row(r) => {
                         r.into_values() == vec![Value::Binary(me.fmt_pk(current)), Value::UInt8(0)]
@@ -279,7 +279,7 @@ fn prepare_bench_spec(bench: &BenchConfig) -> Vec<BenchItem> {
                 bench.key_size,
                 |me, current| {
                     query!(
-                        "update bench set pw += ? where un = ?",
+                        "upd bench set pw += ? where un = ?",
                         1u64,
                         me.fmt_pk(current)
                     )
@@ -292,7 +292,7 @@ fn prepare_bench_spec(bench: &BenchConfig) -> Vec<BenchItem> {
             "DELETE",
             BenchmarkTask::new(
                 bench.key_size,
-                |me, current| query!("delete from bench where un = ?", me.fmt_pk(current)),
+                |me, current| query!("del from bench where un = ?", me.fmt_pk(current)),
                 |_, _, resp| resp == Response::Empty,
             ),
             bench.query_count,
