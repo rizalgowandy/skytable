@@ -965,7 +965,6 @@ impl JournalSettings {
 #[derive(Debug)]
 pub struct JournalStats {
     header: usize,
-    server_events: usize,
     driver_events: usize,
     heuristics: JournalHeuristics,
     file_size: usize,
@@ -973,6 +972,7 @@ pub struct JournalStats {
 
 #[derive(Debug)]
 pub struct JournalHeuristics {
+    server_events: usize,
     redundant_records: usize,
 }
 
@@ -984,6 +984,9 @@ impl JournalHeuristics {
     #[inline(always)]
     pub fn report_new_redundant_record(&mut self) {
         self.report_additional_redundant_records(1)
+    }
+    pub fn increment_server_event_count(&mut self) {
+        self.server_events += 1;
     }
     #[cfg(test)]
     pub fn get_current_redundant(&self) -> usize {
@@ -1002,6 +1005,13 @@ impl Recommendation {
     pub const fn needs_compaction(&self) -> bool {
         matches!(self, Self::CompactDrvHighRatio | Self::CompactRedHighRatio)
     }
+    pub const fn reason_str(&self) -> &'static str {
+        match self {
+            Self::NoActionNeeded => "no action needed",
+            Self::CompactDrvHighRatio => "drv_high_ratio",
+            Self::CompactRedHighRatio => "srv_high_redundancy",
+        }
+    }
 }
 
 impl JournalStats {
@@ -1012,13 +1022,15 @@ impl JournalStats {
         } else {
             4 * 1024 * 1024
         };
-        let total_records = self.server_events + self.driver_events;
-        let server_event_percentage = (self.server_events as f64 / total_records as f64) * 100.0;
+        let total_records = self.heuristics.server_events + self.driver_events;
+        let server_event_percentage =
+            (self.heuristics.server_events as f64 / total_records as f64) * 100.0;
         let driver_event_percentage = (self.driver_events as f64 / total_records as f64) * 100.0;
-        let redundant_record_percentage = if self.server_events == 0 {
+        let redundant_record_percentage = if self.heuristics.server_events == 0 {
             0.0
         } else {
-            (self.heuristics.redundant_records as f64 / self.server_events as f64) * 100.00
+            (self.heuristics.redundant_records as f64 / self.heuristics.server_events as f64)
+                * 100.00
         };
         if self.file_size >= minimum_file_size_compaction_trigger {
             if driver_event_percentage >= server_event_percentage {
@@ -1032,9 +1044,9 @@ impl JournalStats {
     }
     fn new<J: RawJournalAdapter>() -> Self {
         Self {
-            server_events: 0,
             driver_events: 0,
             heuristics: JournalHeuristics {
+                server_events: 0,
                 redundant_records: 0,
             },
             file_size: 0,
@@ -1286,7 +1298,6 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
                         Ok(()) => {
                             jtrace_reader!(ServerEventAppliedSuccess);
                             Self::__refresh_known_txn(self);
-                            self.stats.server_events += 1;
                             return Ok(false);
                         }
                         Err(e) => return Err(e),

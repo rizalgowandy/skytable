@@ -533,8 +533,9 @@ impl BatchAdapterSpec for ModelDataAdapter {
         f: &mut TrackedReaderContext<Self::Spec>,
         batch_info: &Self::BatchMetadata,
         event_type: Self::EventType,
-        _: &mut JournalHeuristics,
+        h: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
+        h.increment_server_event_count();
         // get txn id
         let txn_id = u64::from_le_bytes(f.read_block()?);
         // get pk

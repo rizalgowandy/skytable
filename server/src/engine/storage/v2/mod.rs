@@ -144,6 +144,12 @@ pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
                 JournalSettings::default(),
             )?;
             if mdl_stats.recommended_action().needs_compaction() {
+                info!(
+                    "{}.{} needs compaction due to {}",
+                    id.space(),
+                    id.entity(),
+                    mdl_stats.recommended_action().reason_str()
+                );
                 model_driver = journal::compact_journal::<true, BatchAdapter<ModelDataAdapter>>(
                     &model_data_file_path,
                     model_driver,

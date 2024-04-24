@@ -153,6 +153,7 @@ impl RawJournalAdapter for CompactDBAdapter {
         file: &mut TrackedReader<Self::Spec>,
         heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
+        heuristics.increment_server_event_count();
         match meta {
             CompactDBEventKind::Insert => read_kv(file, gs),
             CompactDBEventKind::Update => {

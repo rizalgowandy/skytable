@@ -154,6 +154,7 @@ impl<EL: EventLogSpec> RawJournalAdapter for EventLogAdapter<EL> {
         if this_checksum.finish() != expected_checksum {
             return Err(StorageError::RawJournalDecodeCorruptionInBatchMetadata.into());
         }
+        heuristics.increment_server_event_count();
         <EL as EventLogSpec>::DECODE_DISPATCH
             [<<EL as EventLogSpec>::EventMeta as TaggedEnum>::dscr_u64(&meta) as usize](
             gs, heuristics, pl,
