@@ -30,7 +30,8 @@ mod args;
 mod bench;
 mod error;
 mod legacy;
-mod workloads;
+mod stats;
+mod workload;
 
 fn main() {
     env_logger::Builder::new()

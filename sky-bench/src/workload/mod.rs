@@ -28,7 +28,7 @@ pub mod driver;
 pub mod error;
 
 use {
-    crate::{args::BenchConfig, error::BenchResult, workloads::driver::WorkloadDriver},
+    crate::{args::BenchConfig, error::BenchResult, workload::driver::WorkloadDriver},
     skytable::{query, Config, ConnectionAsync},
 };
 
@@ -59,7 +59,7 @@ async fn run<W: Workload>(
     let driver = WorkloadDriver::initialize(bench_config.connections, config, workload).await?;
     info!("beginning execution of workload {}", W::NAME);
     for (query, qps) in driver.run_workload(workload).await? {
-        println!("{query}={qps}/sec");
+        println!("{query}={qps:?}/sec");
     }
     Ok(())
 }

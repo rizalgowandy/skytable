@@ -29,7 +29,10 @@ use {
         error::{WorkerResult, WorkloadDriverError},
         Workload,
     },
-    crate::workloads::GeneratedWorkload,
+    crate::{
+        stats::{self, WorkerLocalStats},
+        workload::GeneratedWorkload,
+    },
     skytable::Config,
     std::{
         marker::PhantomData,
@@ -107,7 +110,7 @@ mod global {
 #[derive(Debug)]
 pub struct WorkloadDriver<W: Workload> {
     connection_count: usize,
-    work_result_rx: mpsc::Receiver<WorkerResult<WorkerRunInfo>>,
+    work_result_rx: mpsc::Receiver<WorkerResult<WorkerLocalStats>>,
     work_tx: broadcast::Sender<WorkerTask>,
     _wl: PhantomData<W>,
 }
@@ -202,7 +205,6 @@ impl<W: Workload> WorkloadDriver<W> {
         results: &mut Vec<(&'static str, f64)>,
         count: usize,
     ) -> WorkerResult<()> {
-        info!("beginning generation of workload task '{task_name}'");
         if let GeneratedWorkload::Workload((encoded_packets, resp_size)) = task {
             info!("executing workload task '{task_name}' with {count} queries");
             // lock
@@ -217,14 +219,35 @@ impl<W: Workload> WorkloadDriver<W> {
                 )));
             }
             // FIXME(@ohsayan): there is a lot of unnecessary time spent in threading etc., so this is very very imprecise
-            let start = Instant::now();
             drop(workload_lock);
-            info!("workload task '{task_name}' started");
+            info!("workload task '{task_name}' execution started");
             let mut i = 0;
+            let mut global_start = None;
+            let mut global_stop = None;
             while i != self.connection_count {
                 match self.work_result_rx.recv().await {
-                    Some(r) => {
-                        r?;
+                    Some(Ok(r)) => {
+                        match global_start.as_mut() {
+                            Some(global) => {
+                                if r.start < *global {
+                                    *global = r.start;
+                                }
+                            }
+                            None => global_start = Some(r.start),
+                        }
+                        let this_stop =
+                            r.start + Duration::from_nanos(r.elapsed.try_into().unwrap());
+                        match global_stop.as_mut() {
+                            Some(global) => {
+                                if this_stop > *global {
+                                    *global = this_stop;
+                                }
+                            }
+                            None => global_stop = Some(this_stop),
+                        }
+                    }
+                    Some(Err(e)) => {
+                        return Err(WorkloadDriverError::Driver(format!("a worker failed. {e}")))
                     }
                     None => {
                         return Err(WorkloadDriverError::Driver(format!(
@@ -234,14 +257,18 @@ impl<W: Workload> WorkloadDriver<W> {
                 }
                 i += 1;
             }
-            let stop = Instant::now();
-            let qps =
-                (count as f64 / (stop.duration_since(start).as_nanos() as f64)) * 1_000_000_000.0;
+            let qps = stats::qps(
+                count,
+                global_stop
+                    .unwrap()
+                    .duration_since(global_start.unwrap())
+                    .as_nanos(),
+            );
             results.push((task_name, qps));
             unsafe { global::deallocate_workload() }
-            info!("completed execution of workload task '{task_name}'");
+            info!("workload task '{task_name}' completed");
         } else {
-            info!("this workload is set to skip task '{task_name}'");
+            info!("workload task '{task_name}' skipped by workload");
         }
         Ok(())
     }
@@ -280,16 +307,12 @@ enum WorkerTask {
     Terminate,
 }
 
-struct WorkerRunInfo {
-    _worker_id: usize,
-}
-
 async fn worker_task(
     worker_id: usize,
     config: Config,
     online_tx: mpsc::Sender<WorkerResult<()>>,
     mut work_rx: broadcast::Receiver<WorkerTask>,
-    result_rx: mpsc::Sender<WorkerResult<WorkerRunInfo>>,
+    result_rx: mpsc::Sender<WorkerResult<WorkerLocalStats>>,
     (post_init_request, post_init_resp): (Vec<u8>, Vec<u8>),
 ) {
     let init = async {
@@ -374,6 +397,9 @@ async fn worker_task(
             WorkerTask::GetReady => {}
             WorkerTask::Terminate => break,
         };
+        let mut head = u128::MAX;
+        let mut tail = 0u128;
+        let mut elapsed = 0u128;
         let mut read_buffer = vec![
             0;
             unsafe {
@@ -382,10 +408,12 @@ async fn worker_task(
             }
         ];
         let _work_permit_that_is_hard_to_get = global::glck_shared().await;
+        let start = Instant::now();
         while let Some(work) = unsafe {
             // UNSAFE(@ohsayan): since we received an execution request, this is safe to do
             global::gworkload_step()
         } {
+            let start = Instant::now();
             if con.write_all(work).await.is_err() {
                 unsafe {
                     // UNSAFE(@ohsayan): we hit an error, no matter how many workers call this in parallel, this is safe
@@ -410,12 +438,24 @@ async fn worker_task(
                     return;
                 }
             }
+            let stop = Instant::now();
+            let full_query_execution_time = stop.duration_since(start).as_nanos();
+            if full_query_execution_time < head {
+                head = full_query_execution_time;
+            }
+            if full_query_execution_time > tail {
+                tail = full_query_execution_time
+            }
+            elapsed += full_query_execution_time;
             // FIXME(@ohsayan): validate the response here
         }
         // we're done here
         let _ = result_rx
-            .send(Ok(WorkerRunInfo {
-                _worker_id: worker_id,
+            .send(Ok(WorkerLocalStats {
+                start,
+                head,
+                tail,
+                elapsed,
             }))
             .await;
     }

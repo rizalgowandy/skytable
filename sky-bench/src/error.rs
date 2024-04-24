@@ -28,7 +28,7 @@ use {
     crate::{
         bench::BombardTask,
         legacy::runtime::{fury, rookie::BombardError},
-        workloads::error::WorkloadDriverError,
+        workload::error::WorkloadDriverError,
     },
     core::fmt,
     skytable::error::Error,
