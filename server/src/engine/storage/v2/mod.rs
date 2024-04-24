@@ -124,9 +124,12 @@ pub fn initialize_new(config: &Configuration) -> RuntimeResult<SELoaded> {
 pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
     let gns = GNSData::empty();
     context::set_dmsg("loading gns");
+    let mut did_backup = false;
     let (mut gns_driver, gns_driver_stats) =
         impls::gns_log::GNSDriver::open_gns(&gns, JournalSettings::default())?;
     if gns_driver_stats.recommended_action().needs_compaction() {
+        full_backup("before-startup-compaction")?;
+        did_backup = true;
         gns_driver = journal::compact_journal::<true, EventLogAdapter<GNSEventLog>>(
             GNS_PATH, gns_driver, &gns,
         )?;
@@ -150,6 +153,14 @@ pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
                     id.entity(),
                     mdl_stats.recommended_action().reason_str()
                 );
+                if !did_backup {
+                    full_backup(&format!(
+                        "before-compaction-of-model-{}.{}",
+                        id.entity(),
+                        id.space()
+                    ))?;
+                    did_backup = true;
+                }
                 model_driver = journal::compact_journal::<true, BatchAdapter<ModelDataAdapter>>(
                     &model_data_file_path,
                     model_driver,
@@ -211,18 +222,7 @@ pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
 */
 
 pub fn repair() -> RuntimeResult<()> {
-    // back up all files
-    let backup_dir = format!(
-        "backups/{}-before-recovery-process",
-        util::time_now_string()
-    );
-    context::set_dmsg("creating backup directory");
-    FileSystem::create_dir_all(&backup_dir)?;
-    context::set_dmsg("backing up GNS");
-    FileSystem::copy(GNS_PATH, &format!("{backup_dir}/{GNS_PATH}"))?; // backup GNS
-    context::set_dmsg("backing up data directory");
-    FileSystem::copy_directory(DATA_DIR, &format!("{backup_dir}/{DATA_DIR}"))?; // backup data
-    info!("All data backed up in {backup_dir}");
+    full_backup("before-recovery-process")?;
     // check and attempt repair: GNS
     let gns = GNSData::empty();
     context::set_dmsg("repair GNS");
@@ -263,6 +263,18 @@ pub fn repair() -> RuntimeResult<()> {
     Ok(())
 }
 
+fn full_backup(reason: &str) -> RuntimeResult<()> {
+    let backup_dir = format!("backups/{}-{reason}", util::time_now_string());
+    context::set_dmsg("creating backup directory");
+    FileSystem::create_dir_all(&backup_dir)?;
+    context::set_dmsg("backing up GNS");
+    FileSystem::copy(GNS_PATH, &format!("{backup_dir}/{GNS_PATH}"))?;
+    context::set_dmsg("backing up data directory");
+    FileSystem::copy_directory(DATA_DIR, &format!("{backup_dir}/{DATA_DIR}"))?;
+    info!("All data backed up in {backup_dir}");
+    Ok(())
+}
+
 fn print_repair_info(result: RepairResult, id: &str) {
     match result {
         RepairResult::NoErrors => info!("repair: no errors detected in {id}"),
@@ -277,6 +289,7 @@ fn print_repair_info(result: RepairResult, id: &str) {
 }
 
 pub fn compact() -> RuntimeResult<()> {
+    full_backup("before-compaction")?;
     let gns = GNSData::empty();
     context::set_dmsg("reading GNS");
     let stats = journal::read_journal::<GNSAdapter>(GNS_PATH, &gns, JournalSettings::default())?;
