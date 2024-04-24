@@ -48,7 +48,7 @@ pub fn exec_ref<G: GlobalInstanceLike>(
     current_user: &ClientLocalState,
     cmd: SysctlCommand,
 ) -> QueryResult<()> {
-    if cmd.needs_root() & !current_user.is_root() {
+    if cmd.needs_root() && !current_user.is_root() {
         return Err(QueryError::SysPermissionDenied);
     }
     match cmd {
@@ -65,30 +65,12 @@ pub fn exec_ref<G: GlobalInstanceLike>(
     }
 }
 
-fn alter_user(
-    global: &impl GlobalInstanceLike,
-    cstate: &ClientLocalState,
-    user: UserDecl,
-) -> QueryResult<()> {
-    if !cstate.is_root() || user.username() == SystemDatabase::ROOT_ACCOUNT {
-        // the root password can only be changed by shutting down the server
+fn guard_root_or_self(me: &ClientLocalState, target_username: &str) -> QueryResult<()> {
+    if me.username() == target_username || target_username == SystemDatabase::ROOT_ACCOUNT {
+        // you can't delete or change your own account (log out first) or the root account
         return Err(QueryError::SysAuthError);
     }
-    let (username, password) = get_user_data(user)?;
-    global
-        .state()
-        .namespace()
-        .sys_db()
-        .alter_user(global, &username, &password)
-}
-
-fn create_user(global: &impl GlobalInstanceLike, user: UserDecl) -> QueryResult<()> {
-    let (username, password) = get_user_data(user)?;
-    global
-        .state()
-        .namespace()
-        .sys_db()
-        .create_user(global, username.into_boxed_str(), &password)
+    Ok(())
 }
 
 fn get_user_data<'a>(mut user: UserDecl<'a>) -> Result<(String, String), QueryError> {
@@ -105,15 +87,35 @@ fn get_user_data<'a>(mut user: UserDecl<'a>) -> Result<(String, String), QueryEr
     Ok((username, password))
 }
 
+fn create_user(global: &impl GlobalInstanceLike, user: UserDecl) -> QueryResult<()> {
+    let (username, password) = get_user_data(user)?;
+    global
+        .state()
+        .namespace()
+        .sys_db()
+        .create_user(global, username.into_boxed_str(), &password)
+}
+
+fn alter_user(
+    global: &impl GlobalInstanceLike,
+    me: &ClientLocalState,
+    user: UserDecl,
+) -> QueryResult<()> {
+    guard_root_or_self(me, user.username())?;
+    let (username, password) = get_user_data(user)?;
+    global
+        .state()
+        .namespace()
+        .sys_db()
+        .alter_user(global, &username, &password)
+}
+
 fn drop_user(
     global: &impl GlobalInstanceLike,
-    cstate: &ClientLocalState,
+    me: &ClientLocalState,
     user_del: UserDel<'_>,
 ) -> QueryResult<()> {
-    if cstate.username() == user_del.username() {
-        // you can't delete yourself!
-        return Err(QueryError::SysAuthError);
-    }
+    guard_root_or_self(me, user_del.username())?;
     global
         .state()
         .namespace()
