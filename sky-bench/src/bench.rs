@@ -26,13 +26,16 @@
 
 use skytable::response::Value;
 
-use crate::args::BenchEngine;
+use crate::{
+    args::{BenchEngine, BenchType, BenchWorkload},
+    workloads,
+};
 
 use {
     crate::{
         args::BenchConfig,
         error::{self, BenchResult},
-        runtime::{fury, rookie, RuntimeStats},
+        legacy::runtime::{fury, rookie, RuntimeStats},
     },
     skytable::{error::Error, query, response::Response, Config, Connection, Query},
     std::{fmt, time::Instant},
@@ -126,9 +129,15 @@ pub fn run(bench: BenchConfig) -> error::BenchResult<()> {
     main_thread_db.query_parse::<()>(&query!(format!(
         "create model {BENCHMARK_SPACE_ID}.{BENCHMARK_MODEL_ID}(un: binary, pw: uint8)"
     )))?;
-    let stats = match bench.engine {
-        BenchEngine::Rookie => bench_rookie(bench_config, bench),
-        BenchEngine::Fury => bench_fury(bench),
+    let stats = match bench.workload {
+        BenchType::Workload(BenchWorkload::UniformV1) => return workloads::run_bench(&bench),
+        BenchType::Legacy(l) => {
+            warn!("using `--engine` is now deprecated. please consider switching to `--workload`");
+            match l {
+                BenchEngine::Rookie => bench_rookie(bench_config, bench),
+                BenchEngine::Fury => bench_fury(bench),
+            }
+        }
     };
     let (total_queries, stats) = match stats {
         Ok(ret) => ret,

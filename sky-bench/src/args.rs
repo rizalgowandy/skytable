@@ -44,10 +44,21 @@ pub enum Task {
     BenchConfig(BenchConfig),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BenchEngine {
     Rookie,
     Fury,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum BenchType {
+    Workload(BenchWorkload),
+    Legacy(BenchEngine),
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum BenchWorkload {
+    UniformV1,
 }
 
 #[derive(Debug)]
@@ -58,7 +69,7 @@ pub struct BenchConfig {
     pub threads: usize,
     pub key_size: usize,
     pub query_count: usize,
-    pub engine: BenchEngine,
+    pub workload: BenchType,
     pub connections: usize,
 }
 
@@ -70,7 +81,7 @@ impl BenchConfig {
         threads: usize,
         key_size: usize,
         query_count: usize,
-        engine: BenchEngine,
+        bench_type: BenchType,
         connections: usize,
     ) -> Self {
         Self {
@@ -80,7 +91,7 @@ impl BenchConfig {
             threads,
             key_size,
             query_count,
-            engine,
+            workload: bench_type,
             connections,
         }
     }
@@ -187,26 +198,33 @@ pub fn parse() -> BenchResult<Task> {
             Err(_) | Ok(_) => return Err(BenchError::ArgsErr(format!("incorrect value for `--keysize`. must be set to a value that can be used to generate atleast {query_count} unique primary keys"))),
         }
     };
-    let engine = match args.remove("--engine") {
-        None => {
-            warn!("engine unspecified. choosing 'fury'");
-            BenchEngine::Fury
-        }
-        Some(engine) => match engine.as_str() {
-            "rookie" => BenchEngine::Rookie,
-            "fury" => BenchEngine::Fury,
+    let workload = match args.remove("--workload") {
+        Some(workload) => match workload.as_str() {
+            "uniform_v1" => BenchType::Workload(BenchWorkload::UniformV1),
             _ => {
                 return Err(BenchError::ArgsErr(format!(
-                    "bad value for `--engine`. got `{engine}` but expected warp or rookie"
+                    "unknown workload choice {workload}"
                 )))
             }
+        },
+        None => match args.remove("--engine") {
+            None => BenchType::Workload(BenchWorkload::UniformV1),
+            Some(engine) => BenchType::Legacy(match engine.as_str() {
+                "rookie" => BenchEngine::Rookie,
+                "fury" => BenchEngine::Fury,
+                _ => {
+                    return Err(BenchError::ArgsErr(format!(
+                        "bad value for `--engine`. got `{engine}` but expected warp or rookie"
+                    )))
+                }
+            }),
         },
     };
     let connections = match args.remove("--connections") {
         None => num_cpus::get() * 8,
         Some(c) => match c.parse::<usize>() {
             Ok(s) if s != 0 => {
-                if engine == BenchEngine::Rookie {
+                if workload == BenchType::Legacy(BenchEngine::Rookie) {
                     return Err(BenchError::ArgsErr(format!(
                         "the 'rookie' engine does not support explicit connection count. the number of threads is the connection count"
                     )));
@@ -228,7 +246,7 @@ pub fn parse() -> BenchResult<Task> {
             thread_count,
             key_size,
             query_count,
-            engine,
+            workload,
             connections,
         )))
     } else {

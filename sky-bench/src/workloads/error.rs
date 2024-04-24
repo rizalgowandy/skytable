@@ -1,5 +1,5 @@
 /*
- * Created on Wed Nov 15 2023
+ * Created on Tue Apr 23 2024
  *
  * This file is a part of Skytable
  * Skytable (formerly known as TerrabaseDB or Skybase) is a free and open-source
@@ -7,7 +7,7 @@
  * vision to provide flexibility in data modelling without compromising
  * on performance, queryability or scalability.
  *
- * Copyright (c) 2023, Sayan Nandan <ohsayan@outlook.com>
+ * Copyright (c) 2024, Sayan Nandan <nandansayan@outlook.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -24,32 +24,23 @@
  *
 */
 
-#[macro_use]
-extern crate log;
-mod args;
-mod bench;
-mod error;
-mod legacy;
-mod workloads;
+use std::{fmt, io};
 
-fn main() {
-    env_logger::Builder::new()
-        .parse_filters(&std::env::var("SKYBENCH_LOG").unwrap_or_else(|_| "info".to_owned()))
-        .init();
-    match run() {
-        Ok(()) => {}
-        Err(e) => {
-            error!("bench error: {e}");
-            std::process::exit(0x01);
-        }
-    }
+#[derive(Debug)]
+pub enum WorkloadDriverError {
+    Io(io::Error),
+    Db(String),
+    Driver(String),
 }
 
-fn run() -> error::BenchResult<()> {
-    let task = args::parse()?;
-    match task {
-        args::Task::HelpMsg(msg) => println!("{msg}"),
-        args::Task::BenchConfig(bench) => bench::run(bench)?,
+pub type WorkerResult<T> = Result<T, WorkloadDriverError>;
+
+impl fmt::Display for WorkloadDriverError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "i/o error: {e}"),
+            Self::Db(e) => write!(f, "db error: {e}"),
+            Self::Driver(e) => write!(f, "workload driver error: {e}"),
+        }
     }
-    Ok(())
 }
