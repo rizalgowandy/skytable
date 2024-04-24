@@ -124,16 +124,17 @@ pub fn run(bench: BenchConfig) -> error::BenchResult<()> {
         "root",
         &bench.root_pass,
     ));
-    info!("running preliminary checks and creating model `bench.bench` with definition: `{{un: binary, pw: uint8}}`");
-    let mut main_thread_db = bench_config.config.connect()?;
-    main_thread_db.query_parse::<()>(&query!("create space bench"))?;
-    main_thread_db.query_parse::<()>(&query!(format!(
-        "create model {BENCHMARK_SPACE_ID}.{BENCHMARK_MODEL_ID}(un: binary, pw: uint8)"
-    )))?;
+    let mut main_thread_db;
     let stats = match bench.workload {
         BenchType::Workload(BenchWorkload::UniformV1) => return workload::run_bench(&bench),
         BenchType::Legacy(l) => {
             warn!("using `--engine` is now deprecated. please consider switching to `--workload`");
+            info!("running preliminary checks and creating model `bench.bench` with definition: `{{un: binary, pw: uint8}}`");
+            main_thread_db = bench_config.config.connect()?;
+            main_thread_db.query_parse::<()>(&query!("create space bench"))?;
+            main_thread_db.query_parse::<()>(&query!(format!(
+                "create model {BENCHMARK_SPACE_ID}.{BENCHMARK_MODEL_ID}(un: binary, pw: uint8)"
+            )))?;
             match l {
                 BenchEngine::Rookie => bench_rookie(bench_config, bench),
                 BenchEngine::Fury => bench_fury(bench),
