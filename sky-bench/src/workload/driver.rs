@@ -26,10 +26,11 @@
 
 use {
     super::{
-        error::{WorkerResult, WorkloadDriverError},
+        error::{WorkloadDriverError, WorkloadResult},
         Workload,
     },
     crate::{
+        setup,
         stats::{self, WorkerLocalStats},
         workload::GeneratedWorkload,
     },
@@ -110,14 +111,15 @@ mod global {
 #[derive(Debug)]
 pub struct WorkloadDriver<W: Workload> {
     connection_count: usize,
-    work_result_rx: mpsc::Receiver<WorkerResult<WorkerLocalStats>>,
+    work_result_rx: mpsc::Receiver<WorkloadResult<WorkerLocalStats>>,
     work_tx: broadcast::Sender<WorkerTask>,
     _wl: PhantomData<W>,
 }
 
 impl<W: Workload> WorkloadDriver<W> {
-    pub async fn initialize(connection_count: usize, config: Config, w: &W) -> WorkerResult<Self> {
-        let (online_tx, mut online_rx) = mpsc::channel::<WorkerResult<()>>(connection_count);
+    pub async fn initialize(w: &W, config: Config) -> WorkloadResult<Self> {
+        let connection_count = unsafe { setup::instance() }.connections();
+        let (online_tx, mut online_rx) = mpsc::channel::<WorkloadResult<()>>(connection_count);
         let (work_tx, _) = broadcast::channel::<WorkerTask>(connection_count);
         let (work_result_tx, work_result_rx) = mpsc::channel(connection_count);
         for id in 0..connection_count {
@@ -154,7 +156,7 @@ impl<W: Workload> WorkloadDriver<W> {
             _wl: PhantomData,
         })
     }
-    pub async fn run_workload(mut self, workload: &W) -> WorkerResult<Vec<(&'static str, f64)>> {
+    pub async fn run_workload(mut self, workload: &W) -> WorkloadResult<Vec<(&'static str, f64)>> {
         let mut results = vec![];
         // insert
         self.run_workload_task(
@@ -204,7 +206,7 @@ impl<W: Workload> WorkloadDriver<W> {
         task: GeneratedWorkload<(EncodedQueryList, usize)>,
         results: &mut Vec<(&'static str, f64)>,
         count: usize,
-    ) -> WorkerResult<()> {
+    ) -> WorkloadResult<()> {
         if let GeneratedWorkload::Workload((encoded_packets, resp_size)) = task {
             info!("executing workload task '{task_name}' with {count} queries");
             // lock
@@ -310,9 +312,9 @@ enum WorkerTask {
 async fn worker_task(
     worker_id: usize,
     config: Config,
-    online_tx: mpsc::Sender<WorkerResult<()>>,
+    online_tx: mpsc::Sender<WorkloadResult<()>>,
     mut work_rx: broadcast::Receiver<WorkerTask>,
-    result_rx: mpsc::Sender<WorkerResult<WorkerLocalStats>>,
+    result_rx: mpsc::Sender<WorkloadResult<WorkerLocalStats>>,
     (post_init_request, post_init_resp): (Vec<u8>, Vec<u8>),
 ) {
     let init = async {

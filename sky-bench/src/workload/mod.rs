@@ -28,35 +28,36 @@ pub mod driver;
 pub mod error;
 
 use {
-    crate::{args::BenchConfig, error::BenchResult, workload::driver::WorkloadDriver},
+    crate::{
+        error::BenchResult,
+        setup::{self, RunnerSetup},
+        workload::driver::WorkloadDriver,
+    },
     skytable::{query, Config, ConnectionAsync},
 };
 
 #[tokio::main]
-pub async fn run_bench(bench_config: &BenchConfig) -> BenchResult<()> {
+pub async fn run_bench() -> BenchResult<()> {
+    let setup = unsafe { setup::instance() };
     let config = Config::new(
-        &bench_config.host,
-        bench_config.port,
-        "root",
-        &bench_config.root_pass,
+        setup.host(),
+        setup.port(),
+        setup.username(),
+        setup.password(),
     );
     let mut main_thread_db = config.connect_async().await?;
-    let workload = UniformV1::new(&bench_config);
+    let workload = UniformV1::new(setup);
     workload.initialize(&mut main_thread_db).await?;
-    let ret = run(bench_config, config, &workload).await;
+    let ret = run(&workload, config).await;
     if let Err(e) = workload.cleanup(&mut main_thread_db).await {
         info!("failed to clean up DB: {e}");
     }
     ret
 }
 
-async fn run<W: Workload>(
-    bench_config: &BenchConfig,
-    config: Config,
-    workload: &W,
-) -> BenchResult<()> {
+async fn run<W: Workload>(workload: &W, config: Config) -> BenchResult<()> {
     info!("initializing workload driver");
-    let driver = WorkloadDriver::initialize(bench_config.connections, config, workload).await?;
+    let driver = WorkloadDriver::initialize(workload, config).await?;
     info!("beginning execution of workload {}", W::NAME);
     for (query, qps) in driver.run_workload(workload).await? {
         println!("{query}={qps:?}/sec");
@@ -79,14 +80,14 @@ pub struct UniformV1 {
 impl UniformV1 {
     pub const DEFAULT_SPACE: &'static str = "db";
     pub const DEFAULT_MODEL: &'static str = "db";
-    pub const fn new(cfg: &BenchConfig) -> Self {
+    pub fn new(setup: &RunnerSetup) -> Self {
         Self {
-            key_size: cfg.key_size,
-            query_count: cfg.query_count,
+            key_size: setup.object_size(),
+            query_count: setup.object_count(),
         }
     }
     fn fmt_pk(&self, current: usize) -> Vec<u8> {
-        format!("{:0>width$}", current, width = self.key_size).into_bytes()
+        format!("{current:0>width$}", width = self.key_size).into_bytes()
     }
 }
 

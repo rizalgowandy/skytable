@@ -28,7 +28,7 @@ use skytable::response::Value;
 
 use crate::{
     args::{BenchEngine, BenchType, BenchWorkload},
-    workload,
+    setup, workload,
 };
 
 use {
@@ -118,15 +118,16 @@ impl rookie::ThreadedBombardTask for BombardTask {
 */
 
 pub fn run(bench: BenchConfig) -> error::BenchResult<()> {
+    let config_instance = unsafe { setup::instance() };
     let bench_config = BombardTask::new(Config::new(
-        &bench.host,
-        bench.port,
-        "root",
-        &bench.root_pass,
+        config_instance.host(),
+        config_instance.port(),
+        config_instance.username(),
+        config_instance.password(),
     ));
     let mut main_thread_db;
     let stats = match bench.workload {
-        BenchType::Workload(BenchWorkload::UniformV1) => return workload::run_bench(&bench),
+        BenchType::Workload(BenchWorkload::UniformV1) => return workload::run_bench(),
         BenchType::Legacy(l) => {
             warn!("using `--engine` is now deprecated. please consider switching to `--workload`");
             info!("running preliminary checks and creating model `bench.bench` with definition: `{{un: binary, pw: uint8}}`");
@@ -136,8 +137,8 @@ pub fn run(bench: BenchConfig) -> error::BenchResult<()> {
                 "create model {BENCHMARK_SPACE_ID}.{BENCHMARK_MODEL_ID}(un: binary, pw: uint8)"
             )))?;
             match l {
-                BenchEngine::Rookie => bench_rookie(bench_config, bench),
-                BenchEngine::Fury => bench_fury(bench),
+                BenchEngine::Rookie => bench_rookie(bench_config),
+                BenchEngine::Fury => bench_fury(),
             }
         }
     };
@@ -259,21 +260,22 @@ impl BenchItem {
     }
 }
 
-fn prepare_bench_spec(bench: &BenchConfig) -> Vec<BenchItem> {
+fn prepare_bench_spec() -> Vec<BenchItem> {
+    let config_instance = unsafe { setup::instance() };
     vec![
         BenchItem::new(
             "INSERT",
             BenchmarkTask::new(
-                bench.key_size,
+                config_instance.object_size(),
                 |me, current| query!("insert into bench(?, ?)", me.fmt_pk(current), 0u64),
                 |_, _, actual_resp| actual_resp == Response::Empty,
             ),
-            bench.query_count,
+            config_instance.object_count(),
         ),
         BenchItem::new(
             "SELECT",
             BenchmarkTask::new(
-                bench.key_size,
+                config_instance.object_size(),
                 |me, current| query!("select * from bench where un = ?", me.fmt_pk(current)),
                 |me, current, resp| match resp {
                     Response::Row(r) => {
@@ -282,12 +284,12 @@ fn prepare_bench_spec(bench: &BenchConfig) -> Vec<BenchItem> {
                     _ => false,
                 },
             ),
-            bench.query_count,
+            config_instance.object_count(),
         ),
         BenchItem::new(
             "UPDATE",
             BenchmarkTask::new(
-                bench.key_size,
+                config_instance.object_size(),
                 |me, current| {
                     query!(
                         "update bench set pw += ? where un = ?",
@@ -297,16 +299,16 @@ fn prepare_bench_spec(bench: &BenchConfig) -> Vec<BenchItem> {
                 },
                 |_, _, resp| resp == Response::Empty,
             ),
-            bench.query_count,
+            config_instance.object_count(),
         ),
         BenchItem::new(
             "DELETE",
             BenchmarkTask::new(
-                bench.key_size,
+                config_instance.object_size(),
                 |me, current| query!("delete from bench where un = ?", me.fmt_pk(current)),
                 |_, _, resp| resp == Response::Empty,
             ),
-            bench.query_count,
+            config_instance.object_count(),
         ),
     ]
 }
@@ -324,20 +326,19 @@ fn fmt_u64(n: u64) -> String {
     result.chars().rev().collect()
 }
 
-fn bench_rookie(
-    task: BombardTask,
-    bench: BenchConfig,
-) -> BenchResult<(u64, Vec<(&'static str, RuntimeStats)>)> {
+fn bench_rookie(task: BombardTask) -> BenchResult<(u64, Vec<(&'static str, RuntimeStats)>)> {
     // initialize pool
+    let config_instance = unsafe { setup::instance() };
     info!(
         "initializing connections. engine=rookie, threads={}, primary key size ={} bytes",
-        bench.threads, bench.key_size
+        config_instance.threads(),
+        config_instance.object_size()
     );
-    let mut pool = rookie::BombardPool::new(bench.threads, task)?;
+    let mut pool = rookie::BombardPool::new(config_instance.threads(), task)?;
     // prepare benches
-    let benches = prepare_bench_spec(&bench);
+    let benches = prepare_bench_spec();
     // bench
-    let total_queries = bench.query_count as u64 * benches.len() as u64;
+    let total_queries = config_instance.object_count() as u64 * benches.len() as u64;
     let mut results = vec![];
     for task in benches {
         let name = task.name;
@@ -348,26 +349,27 @@ fn bench_rookie(
     Ok((total_queries, results))
 }
 
-fn bench_fury(bench: BenchConfig) -> BenchResult<(u64, Vec<(&'static str, RuntimeStats)>)> {
+fn bench_fury() -> BenchResult<(u64, Vec<(&'static str, RuntimeStats)>)> {
+    let config_instance = unsafe { setup::instance() };
     let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(bench.threads)
+        .worker_threads(config_instance.threads())
         .enable_all()
         .build()
         .unwrap();
     rt.block_on(async move {
         info!(
             "initializing connections. engine=fury, threads={}, connections={}, primary key size ={} bytes",
-            bench.threads, bench.connections, bench.key_size
+            config_instance.threads(), config_instance.connections(), config_instance.object_size()
         );
         let mut pool = fury::Fury::new(
-            bench.connections,
-            Config::new(&bench.host, bench.port, "root", &bench.root_pass),
+            config_instance.connections(),
+            Config::new(config_instance.host(), config_instance.port(), config_instance.username(), config_instance.password()),
         )
         .await?;
         // prepare benches
-        let benches = prepare_bench_spec(&bench);
+        let benches = prepare_bench_spec();
         // bench
-        let total_queries = bench.query_count as u64 * benches.len() as u64;
+        let total_queries = config_instance.object_count() as u64 * benches.len() as u64;
         let mut results = vec![];
         for task in benches {
             let name = task.name;

@@ -30,6 +30,7 @@ mod args;
 mod bench;
 mod error;
 mod legacy;
+mod setup;
 mod stats;
 mod workload;
 
@@ -47,7 +48,7 @@ fn main() {
 }
 
 fn run() -> error::BenchResult<()> {
-    let task = args::parse()?;
+    let task = args::parse_and_setup()?;
     match task {
         args::Task::HelpMsg(msg) => println!("{msg}"),
         args::Task::BenchConfig(bench) => bench::run(bench)?,

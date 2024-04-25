@@ -25,7 +25,10 @@
 */
 
 use {
-    crate::error::{BenchError, BenchResult},
+    crate::{
+        error::{BenchError, BenchResult},
+        setup,
+    },
     libsky::{env_vars, CliAction},
     std::{collections::hash_map::HashMap, env},
 };
@@ -63,36 +66,13 @@ pub enum BenchWorkload {
 
 #[derive(Debug)]
 pub struct BenchConfig {
-    pub host: String,
-    pub port: u16,
-    pub root_pass: String,
-    pub threads: usize,
-    pub key_size: usize,
-    pub query_count: usize,
     pub workload: BenchType,
-    pub connections: usize,
 }
 
 impl BenchConfig {
-    pub fn new(
-        host: String,
-        port: u16,
-        root_pass: String,
-        threads: usize,
-        key_size: usize,
-        query_count: usize,
-        bench_type: BenchType,
-        connections: usize,
-    ) -> Self {
+    pub fn new(bench_type: BenchType) -> Self {
         Self {
-            host,
-            port,
-            root_pass,
-            threads,
-            key_size,
-            query_count,
             workload: bench_type,
-            connections,
         }
     }
 }
@@ -114,7 +94,7 @@ fn cdig(n: usize) -> usize {
     }
 }
 
-pub fn parse() -> BenchResult<Task> {
+pub fn parse_and_setup() -> BenchResult<Task> {
     let mut args = match load_env()? {
         TaskInner::HelpMsg(msg) => return Ok(Task::HelpMsg(msg)),
         TaskInner::CheckConfig(args) => args,
@@ -152,7 +132,7 @@ pub fn parse() -> BenchResult<Task> {
         }
     };
     // password
-    let passsword = match args.remove("--password") {
+    let password = match args.remove("--password") {
         Some(p) => p,
         None => {
             // check env?
@@ -239,16 +219,19 @@ pub fn parse() -> BenchResult<Task> {
         },
     };
     if args.is_empty() {
-        Ok(Task::BenchConfig(BenchConfig::new(
-            host,
-            port,
-            passsword,
-            thread_count,
-            key_size,
-            query_count,
-            workload,
-            connections,
-        )))
+        unsafe {
+            setup::configure(
+                "root".into(),
+                password,
+                host,
+                port,
+                thread_count,
+                connections,
+                key_size,
+                query_count,
+            )
+        }
+        Ok(Task::BenchConfig(BenchConfig::new(workload)))
     } else {
         Err(BenchError::ArgsErr(format!("unrecognized arguments")))
     }

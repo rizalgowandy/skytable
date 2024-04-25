@@ -33,7 +33,7 @@ pub enum WorkloadDriverError {
     Driver(String),
 }
 
-pub type WorkerResult<T> = Result<T, WorkloadDriverError>;
+pub type WorkloadResult<T> = Result<T, WorkloadDriverError>;
 
 impl fmt::Display for WorkloadDriverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
