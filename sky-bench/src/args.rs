@@ -28,6 +28,7 @@ use {
     crate::{
         error::{BenchError, BenchResult},
         setup,
+        workload::{workloads, Workload},
     },
     libsky::{env_vars, CliAction},
     std::{collections::hash_map::HashMap, env},
@@ -180,7 +181,7 @@ pub fn parse_and_setup() -> BenchResult<Task> {
     };
     let workload = match args.remove("--workload") {
         Some(workload) => match workload.as_str() {
-            "uniform_v1" => BenchType::Workload(BenchWorkload::UniformV1),
+            workloads::UniformV1Std::ID => BenchType::Workload(BenchWorkload::UniformV1),
             _ => {
                 return Err(BenchError::ArgsErr(format!(
                     "unknown workload choice {workload}"
@@ -188,7 +189,13 @@ pub fn parse_and_setup() -> BenchResult<Task> {
             }
         },
         None => match args.remove("--engine") {
-            None => BenchType::Workload(BenchWorkload::UniformV1),
+            None => {
+                warn!(
+                    "workload not specified. choosing default workload '{}'",
+                    workloads::UniformV1Std::ID
+                );
+                BenchType::Workload(BenchWorkload::UniformV1)
+            }
             Some(engine) => BenchType::Legacy(match engine.as_str() {
                 "rookie" => BenchEngine::Rookie,
                 "fury" => BenchEngine::Fury,

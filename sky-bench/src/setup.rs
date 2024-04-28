@@ -37,6 +37,7 @@ static mut SETUP: RunnerSetup = RunnerSetup {
     object_count: 0,
 };
 
+#[derive(Debug)]
 pub struct RunnerSetup {
     username: String,
     password: String,
@@ -73,6 +74,12 @@ impl RunnerSetup {
     pub fn object_count(&self) -> usize {
         self.object_count
     }
+    pub fn fmt_pk(&self, current: u64) -> Vec<u8> {
+        Self::_fmt_pk(current, self.object_size())
+    }
+    fn _fmt_pk(current: u64, width: usize) -> Vec<u8> {
+        format!("{current:0>width$}",).into_bytes()
+    }
 }
 
 pub unsafe fn instance() -> &'static RunnerSetup {
@@ -97,4 +104,12 @@ pub unsafe fn configure(
     SETUP.connections = connections;
     SETUP.object_size = object_size;
     SETUP.object_count = object_count;
+}
+
+#[test]
+fn fmt_pk() {
+    assert_eq!(
+        RunnerSetup::_fmt_pk(123456789, 18),
+        "000000000123456789".as_bytes()
+    );
 }

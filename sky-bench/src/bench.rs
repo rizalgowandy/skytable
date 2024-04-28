@@ -24,21 +24,21 @@
  *
 */
 
-use skytable::response::Value;
-
-use crate::{
-    args::{BenchEngine, BenchType, BenchWorkload},
-    setup, workload,
-};
-
 use {
     crate::{
-        args::BenchConfig,
+        args::{BenchConfig, BenchEngine, BenchType, BenchWorkload},
         error::{self, BenchResult},
         legacy::runtime::{fury, rookie},
+        setup,
         stats::RuntimeStats,
+        workload::{self, workloads},
     },
-    skytable::{error::Error, query, response::Response, Config, Connection, Query},
+    skytable::{
+        error::Error,
+        query,
+        response::{Response, Value},
+        Config, Connection, Query,
+    },
     std::{fmt, time::Instant},
 };
 
@@ -125,17 +125,20 @@ pub fn run(bench: BenchConfig) -> error::BenchResult<()> {
         config_instance.username(),
         config_instance.password(),
     ));
-    let mut main_thread_db;
+    let mut main_thread_db = None;
     let stats = match bench.workload {
-        BenchType::Workload(BenchWorkload::UniformV1) => return workload::run_bench(),
+        BenchType::Workload(workload) => match workload {
+            BenchWorkload::UniformV1 => workload::run_bench(workloads::UniformV1Std::new()),
+        },
         BenchType::Legacy(l) => {
             warn!("using `--engine` is now deprecated. please consider switching to `--workload`");
             info!("running preliminary checks and creating model `bench.bench` with definition: `{{un: binary, pw: uint8}}`");
-            main_thread_db = bench_config.config.connect()?;
-            main_thread_db.query_parse::<()>(&query!("create space bench"))?;
-            main_thread_db.query_parse::<()>(&query!(format!(
+            let mut mt_db = bench_config.config.connect()?;
+            mt_db.query_parse::<()>(&query!("create space bench"))?;
+            mt_db.query_parse::<()>(&query!(format!(
                 "create model {BENCHMARK_SPACE_ID}.{BENCHMARK_MODEL_ID}(un: binary, pw: uint8)"
             )))?;
+            main_thread_db = Some(mt_db);
             match l {
                 BenchEngine::Rookie => bench_rookie(bench_config),
                 BenchEngine::Fury => bench_fury(),
@@ -170,9 +173,11 @@ pub fn run(bench: BenchConfig) -> error::BenchResult<()> {
     util
 */
 
-fn cleanup(mut main_thread_db: Connection) -> Result<(), error::BenchError> {
+fn cleanup(main_thread_db: Option<Connection>) -> Result<(), error::BenchError> {
     trace!("dropping space and table");
-    main_thread_db.query_parse::<()>(&query!("drop space allow not empty bench"))?;
+    if let Some(mut db) = main_thread_db {
+        db.query_parse::<()>(&query!("drop space allow not empty bench"))?;
+    }
     Ok(())
 }
 
@@ -205,23 +210,17 @@ fn print_table(data: Vec<(&'static str, RuntimeStats)>) {
 pub struct BenchmarkTask {
     gen_query: fn(&Self, u64) -> Query,
     check_resp: fn(&Self, u64, Response) -> bool,
-    pk_len: usize,
 }
 
 impl BenchmarkTask {
     fn new(
-        pk_len: usize,
         gen_query: fn(&Self, u64) -> Query,
         check_resp: fn(&Self, u64, Response) -> bool,
     ) -> Self {
         Self {
             gen_query,
             check_resp,
-            pk_len,
         }
-    }
-    fn fmt_pk(&self, current: u64) -> Vec<u8> {
-        format!("{:0>width$}", current, width = self.pk_len).into_bytes()
     }
     pub fn generate_query(&self, current: u64) -> Query {
         (self.gen_query)(self, current)
@@ -266,8 +265,13 @@ fn prepare_bench_spec() -> Vec<BenchItem> {
         BenchItem::new(
             "INSERT",
             BenchmarkTask::new(
-                config_instance.object_size(),
-                |me, current| query!("insert into bench(?, ?)", me.fmt_pk(current), 0u64),
+                |_, current| {
+                    query!(
+                        "insert into bench(?, ?)",
+                        unsafe { setup::instance() }.fmt_pk(current),
+                        0u64
+                    )
+                },
                 |_, _, actual_resp| actual_resp == Response::Empty,
             ),
             config_instance.object_count(),
@@ -275,11 +279,19 @@ fn prepare_bench_spec() -> Vec<BenchItem> {
         BenchItem::new(
             "SELECT",
             BenchmarkTask::new(
-                config_instance.object_size(),
-                |me, current| query!("select * from bench where un = ?", me.fmt_pk(current)),
-                |me, current, resp| match resp {
+                |_, current| {
+                    query!(
+                        "select * from bench where un = ?",
+                        unsafe { setup::instance() }.fmt_pk(current)
+                    )
+                },
+                |_, current, resp| match resp {
                     Response::Row(r) => {
-                        r.into_values() == vec![Value::Binary(me.fmt_pk(current)), Value::UInt8(0)]
+                        r.into_values()
+                            == vec![
+                                Value::Binary(unsafe { setup::instance() }.fmt_pk(current)),
+                                Value::UInt8(0),
+                            ]
                     }
                     _ => false,
                 },
@@ -289,12 +301,11 @@ fn prepare_bench_spec() -> Vec<BenchItem> {
         BenchItem::new(
             "UPDATE",
             BenchmarkTask::new(
-                config_instance.object_size(),
-                |me, current| {
+                |_, current| {
                     query!(
                         "update bench set pw += ? where un = ?",
                         1u64,
-                        me.fmt_pk(current)
+                        unsafe { setup::instance() }.fmt_pk(current)
                     )
                 },
                 |_, _, resp| resp == Response::Empty,
@@ -304,8 +315,12 @@ fn prepare_bench_spec() -> Vec<BenchItem> {
         BenchItem::new(
             "DELETE",
             BenchmarkTask::new(
-                config_instance.object_size(),
-                |me, current| query!("delete from bench where un = ?", me.fmt_pk(current)),
+                |_, current| {
+                    query!(
+                        "delete from bench where un = ?",
+                        unsafe { setup::instance() }.fmt_pk(current)
+                    )
+                },
                 |_, _, resp| resp == Response::Empty,
             ),
             config_instance.object_count(),

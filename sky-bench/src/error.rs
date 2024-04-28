@@ -28,7 +28,7 @@ use {
     crate::{
         bench::BombardTask,
         legacy::runtime::{fury, rookie::BombardError},
-        workload::error::WorkloadDriverError,
+        workload::error::WorkloadError,
     },
     core::fmt,
     skytable::error::Error,
@@ -40,7 +40,7 @@ pub type BenchResult<T> = Result<T, BenchError>;
 pub enum BenchError {
     ArgsErr(String),
     DirectDbError(Error),
-    WorkloadDriverError(WorkloadDriverError),
+    WorkloadDriverError(WorkloadError),
     // legacy
     LegacyRookieEngineError(BombardError<BombardTask>),
     LegacyFuryEngineError(fury::FuryError),
@@ -52,8 +52,8 @@ impl From<fury::FuryError> for BenchError {
     }
 }
 
-impl From<WorkloadDriverError> for BenchError {
-    fn from(e: WorkloadDriverError) -> Self {
+impl From<WorkloadError> for BenchError {
+    fn from(e: WorkloadError) -> Self {
         Self::WorkloadDriverError(e)
     }
 }

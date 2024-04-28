@@ -2,6 +2,18 @@
 
 All changes in this project will be noted in this file.
 
+## Version 0.8.3
+
+### Additions
+
+- Benchmark tool:
+  - Switch to using `workload` based benchmarks
+
+### Fixes
+
+- Benchmark tool:
+  - Running a SIGINT now gracefully terminates the workload
+
 ## Version 0.8.2
 
 ### Additions

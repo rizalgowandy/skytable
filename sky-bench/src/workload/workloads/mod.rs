@@ -1,5 +1,5 @@
 /*
- * Created on Tue Apr 23 2024
+ * Created on Sun Apr 28 2024
  *
  * This file is a part of Skytable
  * Skytable (formerly known as TerrabaseDB or Skybase) is a free and open-source
@@ -24,40 +24,5 @@
  *
 */
 
-use {
-    skytable::error::Error,
-    std::{fmt, io},
-};
-
-#[derive(Debug)]
-pub enum WorkloadError {
-    Io(io::Error),
-    Db(String),
-    Driver(String),
-}
-
-pub type WorkloadResult<T> = Result<T, WorkloadError>;
-
-impl fmt::Display for WorkloadError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(e) => write!(f, "i/o error: {e}"),
-            Self::Db(e) => write!(f, "db error: {e}"),
-            Self::Driver(e) => write!(f, "driver error: {e}"),
-        }
-    }
-}
-
-impl From<Error> for WorkloadError {
-    fn from(e: Error) -> Self {
-        Self::Db(format!(
-            "direct operation on control connection failed: {e}"
-        ))
-    }
-}
-
-impl From<io::Error> for WorkloadError {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
-    }
-}
+mod uniform_v1_std;
+pub use uniform_v1_std::UniformV1Std;

@@ -26,191 +26,92 @@
 
 pub mod driver;
 pub mod error;
+mod util;
+// workloads
+pub mod workloads;
 
 use {
-    crate::{
-        error::BenchResult,
-        setup::{self, RunnerSetup},
-        workload::driver::WorkloadDriver,
-    },
-    skytable::{query, Config, ConnectionAsync},
+    self::error::WorkloadResult,
+    crate::{error::BenchResult, setup, stats::RuntimeStats, workload::driver::WorkloadDriver},
+    std::{future::Future, process, time::Instant},
+    tokio::runtime::Builder,
 };
 
-#[tokio::main]
-pub async fn run_bench() -> BenchResult<()> {
-    let setup = unsafe { setup::instance() };
-    let config = Config::new(
-        setup.host(),
-        setup.port(),
-        setup.username(),
-        setup.password(),
-    );
-    let mut main_thread_db = config.connect_async().await?;
-    let workload = UniformV1::new(setup);
-    workload.initialize(&mut main_thread_db).await?;
-    let ret = run(&workload, config).await;
-    if let Err(e) = workload.cleanup(&mut main_thread_db).await {
-        info!("failed to clean up DB: {e}");
-    }
-    ret
-}
-
-async fn run<W: Workload>(workload: &W, config: Config) -> BenchResult<()> {
-    info!("initializing workload driver");
-    let driver = WorkloadDriver::initialize(workload, config).await?;
-    info!("beginning execution of workload {}", W::NAME);
-    for (query, qps) in driver.run_workload(workload).await? {
-        println!("{query}={qps:?}/sec");
-    }
-    Ok(())
-}
-
-/*
-    uniform_v1
-    -----
-    - 1:1:1:1 Insert, select, update, delete
-    - all unique rows
-*/
-
-pub struct UniformV1 {
-    key_size: usize,
-    query_count: usize,
-}
-
-impl UniformV1 {
-    pub const DEFAULT_SPACE: &'static str = "db";
-    pub const DEFAULT_MODEL: &'static str = "db";
-    pub fn new(setup: &RunnerSetup) -> Self {
-        Self {
-            key_size: setup.object_size(),
-            query_count: setup.object_count(),
+pub fn run_bench<W: Workload>(w: W) -> BenchResult<(u64, Vec<(&'static str, RuntimeStats)>)> {
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(unsafe { setup::instance().threads() })
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async move {
+        let sig = tokio::signal::ctrl_c();
+        let mut control_connection = w.setup_control_connection().await?;
+        info!("initializing workload '{}'", W::ID);
+        let wl_drv = WorkloadDriver::<W>::initialize().await?;
+        info!("executing workload '{}'", W::ID);
+        tokio::select! {
+            r_ = wl_drv.run_workload() => {
+                let r = r_?;
+                if let Err(e) = w.cleanup(&mut control_connection).await {
+                    error!("failed to clean up database. {e}");
+                }
+                Ok((w.total_queries() as u64, r))
+            }
+            _ = sig => {
+                W::signal_stop();
+                info!("received termination signal. cleaning up");
+                if let Err(e) = w.cleanup(&mut control_connection).await {
+                    error!("failed to clean up database. {e}");
+                }
+                process::exit(0x00);
+            }
         }
-    }
-    fn fmt_pk(&self, current: usize) -> Vec<u8> {
-        format!("{current:0>width$}", width = self.key_size).into_bytes()
-    }
+    })
 }
 
-impl Workload for UniformV1 {
-    const NAME: &'static str = "uniform_v1";
-    fn get_query_count(&self) -> usize {
-        self.query_count
-    }
-    fn worker_init_packets(&self) -> (Vec<u8>, Vec<u8>) {
-        (
-            query!(format!("use {}", Self::DEFAULT_SPACE)).debug_encode_packet(),
-            [0x12].into(),
-        )
-    }
-    async fn initialize(&self, db: &mut ConnectionAsync) -> BenchResult<()> {
-        db.query_parse::<()>(&query!(format!("create space {}", Self::DEFAULT_SPACE)))
-            .await?;
-        db.query_parse::<()>(&query!(format!(
-            "create model {}.{}(k: binary, v: uint8)",
-            Self::DEFAULT_SPACE,
-            Self::DEFAULT_MODEL
-        )))
-        .await?;
-        Ok(())
-    }
-    async fn cleanup(&self, db: &mut ConnectionAsync) -> BenchResult<()> {
-        db.query_parse::<()>(&query!(format!(
-            "drop model allow not empty {}.{}",
-            Self::DEFAULT_SPACE,
-            Self::DEFAULT_MODEL
-        )))
-        .await?;
-        db.query_parse::<()>(&query!(format!("drop space {}", Self::DEFAULT_SPACE)))
-            .await?;
-        Ok(())
-    }
-    // workload generation
-    fn generate_upsert(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)> {
-        GeneratedWorkload::Skipped
-    }
-    fn generate_insert(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)> {
-        let mut queries = vec![];
-        for i in 0..self.query_count {
-            queries.push(
-                query!(
-                    format!("ins into {}(?,?)", Self::DEFAULT_MODEL),
-                    self.fmt_pk(i),
-                    0u8
-                )
-                .debug_encode_packet()
-                .into_boxed_slice(),
-            );
-        }
-        // resp is the empty byte
-        GeneratedWorkload::Workload((queries, 1))
-    }
-    fn generate_select(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)> {
-        let mut queries = vec![];
-        for i in 0..self.query_count {
-            queries.push(
-                query!(
-                    format!("sel v from {} where k = ?", Self::DEFAULT_MODEL),
-                    self.fmt_pk(i)
-                )
-                .debug_encode_packet()
-                .into_boxed_slice(),
-            );
-        }
-        // resp is {row_code}{row_size}\n{int_code}{int}\n
-        GeneratedWorkload::Workload((queries, 6))
-    }
-    fn generate_update(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)> {
-        let mut queries = vec![];
-        for i in 0..self.query_count {
-            queries.push(
-                query!(
-                    format!("upd {} set v += ? where k = ?", Self::DEFAULT_MODEL),
-                    1u8,
-                    self.fmt_pk(i)
-                )
-                .debug_encode_packet()
-                .into_boxed_slice(),
-            );
-        }
-        // resp is the empty byte
-        GeneratedWorkload::Workload((queries, 1))
-    }
-    fn generate_delete(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)> {
-        let mut queries = vec![];
-        for i in 0..self.query_count {
-            queries.push(
-                query!(
-                    format!("del from {} where k = ?", Self::DEFAULT_MODEL),
-                    self.fmt_pk(i)
-                )
-                .debug_encode_packet()
-                .into_boxed_slice(),
-            );
-        }
-        // resp is the empty byte
-        GeneratedWorkload::Workload((queries, 1))
-    }
-}
-
-/*
-    workload definition
-*/
-
-#[derive(Debug)]
-pub enum GeneratedWorkload<T> {
-    Workload(T),
-    Skipped,
-}
-
-pub trait Workload: Sized {
-    const NAME: &'static str;
-    fn get_query_count(&self) -> usize;
-    fn worker_init_packets(&self) -> (Vec<u8>, Vec<u8>);
-    async fn initialize(&self, db: &mut ConnectionAsync) -> BenchResult<()>;
-    fn generate_upsert(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)>;
-    fn generate_insert(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)>;
-    fn generate_select(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)>;
-    fn generate_update(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)>;
-    fn generate_delete(&self) -> GeneratedWorkload<(driver::EncodedQueryList, usize)>;
-    async fn cleanup(&self, db: &mut ConnectionAsync) -> BenchResult<()>;
+pub trait Workload {
+    /// name of the workload
+    const ID: &'static str;
+    /// the control connection
+    type ControlPort;
+    /// workload context, forming a part of the full workload
+    type WorkloadContext: Clone + Send + Sync + 'static;
+    /// a workload task
+    type WorkloadPayload: Clone + Send + Sync + 'static;
+    /// the data connection
+    type DataPort: Send + Sync;
+    /// task execution context
+    type TaskExecContext: Send + Sync;
+    // main thread
+    async fn setup_control_connection(&self) -> WorkloadResult<Self::ControlPort>;
+    /// clean up
+    async fn cleanup(&self, control: &mut Self::ControlPort) -> WorkloadResult<()>;
+    // task
+    fn total_queries(&self) -> usize;
+    /// get the tasks for this workload
+    fn generate_tasks() -> impl IntoIterator<Item = Self::WorkloadContext>;
+    /// get the ID of this workload task
+    fn task_id(t: &Self::WorkloadContext) -> &'static str;
+    /// get the number of queries run for this task
+    fn task_query_count(t: &Self::WorkloadContext) -> usize;
+    /// set up this task
+    fn task_setup(t: &Self::WorkloadContext);
+    /// clean up this task's generated data
+    fn task_cleanup(t: &Self::WorkloadContext);
+    /// initialize the task execution context
+    fn task_exec_context_init(t: &Self::WorkloadContext) -> Self::TaskExecContext;
+    // worker methods
+    /// setup up the worker connection
+    fn setup_data_connection(
+    ) -> impl Future<Output = WorkloadResult<Self::DataPort>> + Send + 'static;
+    /// get the next payload
+    fn fetch_next_payload() -> Option<Self::WorkloadPayload>;
+    /// execute this payload
+    fn execute_payload(
+        ctx: &mut Self::TaskExecContext,
+        data_port: &mut Self::DataPort,
+        pl: Self::WorkloadPayload,
+    ) -> impl Future<Output = WorkloadResult<(Instant, Instant)>> + Send;
+    /// signal to terminate all worker threads
+    fn signal_stop();
 }
