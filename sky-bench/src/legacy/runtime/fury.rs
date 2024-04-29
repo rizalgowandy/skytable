@@ -25,11 +25,11 @@
 */
 
 use {
-    super::WorkerTask,
-    crate::{
-        bench::{BenchmarkTask, BENCHMARK_SPACE_ID},
-        stats::{self, RuntimeStats, WorkerLocalStats},
+    super::{
+        super::{BenchmarkTask, BENCHMARK_SPACE_ID},
+        WorkerTask,
     },
+    crate::stats::{self, RuntimeStats, WorkerLocalStats},
     skytable::Config,
     std::{
         fmt,

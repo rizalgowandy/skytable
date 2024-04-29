@@ -58,3 +58,16 @@ impl WorkerLocalStats {
         }
     }
 }
+
+pub fn fmt_u64(n: u64) -> String {
+    let num_str = n.to_string();
+    let mut result = String::new();
+    let chars_rev: Vec<_> = num_str.chars().rev().collect();
+    for (i, ch) in chars_rev.iter().enumerate() {
+        if i % 3 == 0 && i != 0 {
+            result.push(',');
+        }
+        result.push(*ch);
+    }
+    result.chars().rev().collect()
+}

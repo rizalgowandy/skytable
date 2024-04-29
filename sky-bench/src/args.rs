@@ -49,7 +49,7 @@ pub enum Task {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum BenchEngine {
+pub enum LegacyBenchEngine {
     Rookie,
     Fury,
 }
@@ -57,7 +57,7 @@ pub enum BenchEngine {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BenchType {
     Workload(BenchWorkload),
-    Legacy(BenchEngine),
+    Legacy(LegacyBenchEngine),
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -197,8 +197,8 @@ pub fn parse_and_setup() -> BenchResult<Task> {
                 BenchType::Workload(BenchWorkload::UniformV1)
             }
             Some(engine) => BenchType::Legacy(match engine.as_str() {
-                "rookie" => BenchEngine::Rookie,
-                "fury" => BenchEngine::Fury,
+                "rookie" => LegacyBenchEngine::Rookie,
+                "fury" => LegacyBenchEngine::Fury,
                 _ => {
                     return Err(BenchError::ArgsErr(format!(
                         "bad value for `--engine`. got `{engine}` but expected warp or rookie"
@@ -211,7 +211,7 @@ pub fn parse_and_setup() -> BenchResult<Task> {
         None => num_cpus::get() * 8,
         Some(c) => match c.parse::<usize>() {
             Ok(s) if s != 0 => {
-                if workload == BenchType::Legacy(BenchEngine::Rookie) {
+                if workload == BenchType::Legacy(LegacyBenchEngine::Rookie) {
                     return Err(BenchError::ArgsErr(format!(
                         "the 'rookie' engine does not support explicit connection count. the number of threads is the connection count"
                     )));

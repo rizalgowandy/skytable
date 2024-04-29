@@ -26,8 +26,10 @@
 
 use {
     crate::{
-        bench::BombardTask,
-        legacy::runtime::{fury, rookie::BombardError},
+        legacy::{
+            runtime::{fury, rookie::BombardError},
+            BombardTask,
+        },
         workload::error::WorkloadError,
     },
     core::fmt,
