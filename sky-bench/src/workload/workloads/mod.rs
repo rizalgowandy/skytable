@@ -24,5 +24,5 @@
  *
 */
 
-mod uniform_v1_std;
-pub use uniform_v1_std::UniformV1Std;
+mod uniform_std_v1;
+pub use uniform_std_v1::UniformV1Std;

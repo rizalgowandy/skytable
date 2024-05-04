@@ -25,7 +25,7 @@
 */
 
 /*!
- * # `uniform_v1_std` workload
+ * # `uniform_std_v1` workload
  *
  * This workload is a very real-world workload where we first create multiple unique rows using an `INSERT`, then mutate these rows using an `UPDATE`,
  * select a column using a `SELECT` and finally remove the row using `DELETE`.
@@ -87,7 +87,7 @@ impl UniformV1Task {
 }
 
 impl Workload for UniformV1Std {
-    const ID: &'static str = "uniform_v1_std";
+    const ID: &'static str = "uniform_std_v1";
     type ControlPort = ConnectionAsync;
     type WorkloadContext = UniformV1Task;
     type WorkloadPayload = &'static Query;
@@ -105,7 +105,7 @@ impl Workload for UniformV1Std {
                 &Pipeline::new()
                     .add(&query!(format!("create space {DEFAULT_SPACE}")))
                     .add(&query!(format!(
-                        "create model {DEFAULT_SPACE}.{DEFAULT_MODEL}(k: binary, v: uint8)"
+                        "create model {DEFAULT_SPACE}.{DEFAULT_MODEL}(k: binary, v: uint64)"
                     ))),
             )
             .await?;
@@ -133,7 +133,7 @@ impl Workload for UniformV1Std {
             UniformV1Task::new(
                 "INSERT",
                 format!(
-                    "Query='INS INTO db.db(?, ?)'; Params={}B binary key, 0 UInt8 value",
+                    "Query='INS INTO {DEFAULT_MODEL}(?, ?)'; Params={}B binary key, 0 uint64 value",
                     setup.object_size()
                 ),
                 |unique_id| {
@@ -147,7 +147,7 @@ impl Workload for UniformV1Std {
             UniformV1Task::new(
                 "UPDATE",
                 format!(
-                    "Query='UPD db.db SET v += ? WHERE k = ?'; Params={}B binary key, 1 UInt8 value",
+                    "Query='UPD {DEFAULT_MODEL} SET v += ? WHERE k = ?'; Params={}B binary key, 1 uint64 value",
                     setup.object_size()
                 ),
                 |unique_id| {
@@ -161,7 +161,7 @@ impl Workload for UniformV1Std {
             UniformV1Task::new(
                 "SELECT",
                 format!(
-                    "Query='SEL v FROM db.db WHERE k = ?'; Params={}B binary key",
+                    "Query='SEL v FROM {DEFAULT_MODEL} WHERE k = ?'; Params={}B binary key",
                     setup.object_size()
                 ),
                 |unique_id| {
@@ -174,7 +174,7 @@ impl Workload for UniformV1Std {
             UniformV1Task::new(
                 "DELETE",
                 format!(
-                    "Query='DEL FROM db.db WHERE k = ?'; Params={}B binary key",
+                    "Query='DEL FROM {DEFAULT_MODEL} WHERE k = ?'; Params={}B binary key",
                     setup.object_size()
                 ),
                 |unique_id| {
