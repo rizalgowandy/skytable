@@ -725,7 +725,7 @@ checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
 
 [[package]]
 name = "libsky"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "regex",
 ]
@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "sky-bench"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "crossbeam-channel",
  "env_logger",
@@ -1317,7 +1317,7 @@ dependencies = [
 
 [[package]]
 name = "sky_macros"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "libsky",
  "proc-macro2",
@@ -1327,7 +1327,7 @@ dependencies = [
 
 [[package]]
 name = "skyd"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -1354,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "skysh"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "crossterm",
  "libsky",
@@ -1364,8 +1364,8 @@ dependencies = [
 
 [[package]]
 name = "skytable"
-version = "0.8.6"
-source = "git+https://github.com/skytable/client-rust.git#21263b5b3875ac185df58475b057c56d35ca5c30"
+version = "0.8.7"
+source = "git+https://github.com/skytable/client-rust.git?branch=devel#cc5067ad06337b8becd9110d39ae1c5e1c3c4ef5"
 dependencies = [
  "async-trait",
  "bb8",

@@ -357,7 +357,7 @@ impl<Bt: ThreadedBombardTask> BombardPool<Bt> {
                 .duration_since(global_start.unwrap())
                 .as_nanos();
             Ok(RuntimeStats {
-                qps: stats::qps(count, global_elapsed),
+                qps: stats::qps_with_nanos(count, global_elapsed),
                 head: global_head,
                 tail: global_tail,
             })

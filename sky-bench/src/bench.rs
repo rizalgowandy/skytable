@@ -26,8 +26,8 @@
 
 use crate::{
     args::{BenchConfig, BenchType, BenchWorkload},
-    error, legacy, stats,
-    stats::RuntimeStats,
+    error, legacy,
+    stats::{ComprehensiveRuntimeStats, RuntimeStats},
     workload::{self, workloads},
 };
 
@@ -35,43 +35,40 @@ use crate::{
     runner
 */
 
+enum BenchStats {
+    Standard(Vec<(&'static str, RuntimeStats)>),
+    Advanced(ComprehensiveRuntimeStats),
+}
+
 pub fn run(bench: BenchConfig) -> error::BenchResult<()> {
-    let (total_queries, stats) = match bench.workload {
+    let stat = match bench.workload {
         BenchType::Workload(workload) => match workload {
-            BenchWorkload::UniformV1 => workload::run_bench(workloads::UniformV1Std::new()),
+            BenchWorkload::UniformV1 => {
+                workload::run_bench(workloads::UniformV1Std::new()).map(BenchStats::Advanced)
+            }
         },
         BenchType::Legacy(l) => {
             warn!("using `--engine` is now deprecated. please consider switching to `--workload`");
-            legacy::run_bench(l)
+            legacy::run_bench(l).map(BenchStats::Standard)
         }
     }?;
-    info!(
-        "{} queries executed. benchmark complete.",
-        stats::fmt_u64(total_queries)
-    );
     warn!("benchmarks might appear to be slower. this tool is currently experimental");
     // print results
-    self::print_table(stats);
+    self::print_table(stat);
     Ok(())
 }
 
-fn print_table(data: Vec<(&'static str, RuntimeStats)>) {
-    println!(
-        "+---------+--------------------------+-----------------------+------------------------+"
-    );
-    println!(
-        "| Query   | Effective real-world QPS | Slowest Query (nanos) | Fastest Query (nanos)  |"
-    );
-    println!(
-        "+---------+--------------------------+-----------------------+------------------------+"
-    );
-    for (query, RuntimeStats { qps, head, tail }) in data {
-        println!(
-            "| {:<7} | {:>24.2} | {:>21} | {:>22} |",
-            query, qps, tail, head
-        );
+fn print_table(stat: BenchStats) {
+    match stat {
+        BenchStats::Advanced(data) => data.display(),
+        BenchStats::Standard(data) => {
+            println!("+---------+--------------------------+-----------------------+------------------------+");
+            println!("| Query   | Effective real-world QPS | Slowest Query (nanos) | Fastest Query (nanos)  |");
+            println!("+---------+--------------------------+-----------------------+------------------------+");
+            for (query, RuntimeStats { qps, head, tail }) in data {
+                println!("| {query:<7} | {qps:>24.2} | {tail:>21} | {head:>22} |",);
+            }
+            println!("+---------+--------------------------+-----------------------+------------------------+");
+        }
     }
-    println!(
-        "+---------+--------------------------+-----------------------+------------------------+"
-    );
 }

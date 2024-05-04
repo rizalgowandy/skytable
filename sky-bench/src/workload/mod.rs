@@ -32,12 +32,17 @@ pub mod workloads;
 
 use {
     self::error::WorkloadResult,
-    crate::{error::BenchResult, setup, stats::RuntimeStats, workload::driver::WorkloadDriver},
-    std::{future::Future, process, time::Instant},
+    crate::{
+        error::BenchResult,
+        setup,
+        stats::{self, ComprehensiveRuntimeStats},
+        workload::driver::WorkloadDriver,
+    },
+    std::{fmt, future::Future, process, time::Instant},
     tokio::runtime::Builder,
 };
 
-pub fn run_bench<W: Workload>(w: W) -> BenchResult<(u64, Vec<(&'static str, RuntimeStats)>)> {
+pub fn run_bench<W: Workload>(w: W) -> BenchResult<ComprehensiveRuntimeStats> {
     let runtime = Builder::new_multi_thread()
         .worker_threads(unsafe { setup::instance().threads() })
         .enable_all()
@@ -51,22 +56,47 @@ pub fn run_bench<W: Workload>(w: W) -> BenchResult<(u64, Vec<(&'static str, Runt
         info!("executing workload '{}'", W::ID);
         tokio::select! {
             r_ = wl_drv.run_workload() => {
-                let r = r_?;
-                if let Err(e) = w.cleanup(&mut control_connection).await {
+                if let Err(e) = w.finish(&mut control_connection).await {
                     error!("failed to clean up database. {e}");
                 }
-                Ok((w.total_queries() as u64, r))
+                if r_.is_ok() {
+                    info!("{}", w.workload_execution_summary());
+                }
+                r_.map_err(From::from)
             }
             _ = sig => {
                 W::signal_stop();
                 info!("received termination signal. cleaning up");
-                if let Err(e) = w.cleanup(&mut control_connection).await {
+                if let Err(e) = w.finish(&mut control_connection).await {
                     error!("failed to clean up database. {e}");
                 }
                 process::exit(0x00);
             }
         }
     })
+}
+
+pub struct PayloadExecStats {
+    netio_ttfb_micros: u128,
+    netio_full_resp_micros: u128,
+    exec_start: Instant,
+    exec_stop: Instant,
+}
+
+impl PayloadExecStats {
+    fn new(
+        netio_ttfb_micros: u128,
+        netio_full_resp_micros: u128,
+        parse_start: Instant,
+        parse_stop: Instant,
+    ) -> Self {
+        Self {
+            netio_ttfb_micros,
+            netio_full_resp_micros,
+            exec_start: parse_start,
+            exec_stop: parse_stop,
+        }
+    }
 }
 
 pub trait Workload {
@@ -85,13 +115,26 @@ pub trait Workload {
     // main thread
     async fn setup_control_connection(&self) -> WorkloadResult<Self::ControlPort>;
     /// clean up
-    async fn cleanup(&self, control: &mut Self::ControlPort) -> WorkloadResult<()>;
+    async fn finish(&self, control: &mut Self::ControlPort) -> WorkloadResult<()>;
+    /// return a summary of the workload executed
+    fn workload_execution_summary(&self) -> impl fmt::Display {
+        format!(
+            "{} queries executed. benchmark complete.",
+            stats::fmt_u64(self.total_queries() as u64)
+        )
+    }
+    fn workload_description() -> Option<Box<str>> {
+        None
+    }
     // task
     fn total_queries(&self) -> usize;
     /// get the tasks for this workload
     fn generate_tasks() -> impl IntoIterator<Item = Self::WorkloadContext>;
     /// get the ID of this workload task
     fn task_id(t: &Self::WorkloadContext) -> &'static str;
+    fn task_description(_: &Self::WorkloadContext) -> Option<Box<str>> {
+        None
+    }
     /// get the number of queries run for this task
     fn task_query_count(t: &Self::WorkloadContext) -> usize;
     /// set up this task
@@ -106,12 +149,12 @@ pub trait Workload {
     ) -> impl Future<Output = WorkloadResult<Self::DataPort>> + Send + 'static;
     /// get the next payload
     fn fetch_next_payload() -> Option<Self::WorkloadPayload>;
-    /// execute this payload
+    /// execute this payload. return a tuple indicating the full execution time
     fn execute_payload(
         ctx: &mut Self::TaskExecContext,
         data_port: &mut Self::DataPort,
         pl: Self::WorkloadPayload,
-    ) -> impl Future<Output = WorkloadResult<(Instant, Instant)>> + Send;
+    ) -> impl Future<Output = WorkloadResult<PayloadExecStats>> + Send;
     /// signal to terminate all worker threads
     fn signal_stop();
 }

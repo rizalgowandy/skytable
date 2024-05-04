@@ -1,6 +1,6 @@
 [package]
 name = "skysh"
-version = "0.8.1"
+version = "0.8.2"
 authors = ["Sayan Nandan <ohsayan@outlook.com>"]
 edition = "2021"
 description = "The Skytable Shell (skysh)"
@@ -14,7 +14,7 @@ libsky = { path = "../libsky" }
 [dependencies]
 # internal deps
 libsky = { path = "../libsky" }
-skytable = { git = "https://github.com/skytable/client-rust.git" }
+skytable = { git = "https://github.com/skytable/client-rust.git", branch = "devel" }
 # external deps
 crossterm = "0.27.0"
 rustyline = "14.0.0"

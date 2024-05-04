@@ -42,9 +42,9 @@ use {
         util::{self, Target},
         Workload,
     },
-    crate::setup,
+    crate::{setup, workload::PayloadExecStats},
     skytable::{query, response::Response, ConnectionAsync, Pipeline, Query},
-    std::{future::Future, time::Instant},
+    std::{future::Future, sync::Arc, time::Instant},
 };
 
 static mut WL: WorkloadData = WorkloadData {
@@ -69,15 +69,20 @@ impl UniformV1Std {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct UniformV1Task {
     id: &'static str,
+    description: Arc<Box<str>>,
     f: fn(u64) -> Query,
 }
 
 impl UniformV1Task {
-    fn new(id: &'static str, f: fn(u64) -> Query) -> Self {
-        Self { id, f }
+    fn new(id: &'static str, description: String, f: fn(u64) -> Query) -> Self {
+        Self {
+            id,
+            description: Arc::new(description.into_boxed_str()),
+            f,
+        }
     }
 }
 
@@ -88,6 +93,11 @@ impl Workload for UniformV1Std {
     type WorkloadPayload = &'static Query;
     type DataPort = ConnectionAsync;
     type TaskExecContext = ();
+    fn workload_description() -> Option<Box<str>> {
+        Some(
+            format!("Unique rows created (INSERT), manipulated (UPDATE), fetched (SELECT) and deleted (DELETE) (1:1:1:1)").into_boxed_str()
+        )
+    }
     async fn setup_control_connection(&self) -> WorkloadResult<Self::ControlPort> {
         let mut con = util::setup_default_control_connection().await?;
         let ret = con
@@ -107,7 +117,7 @@ impl Workload for UniformV1Std {
             )))
         }
     }
-    async fn cleanup(&self, c: &mut Self::ControlPort) -> WorkloadResult<()> {
+    async fn finish(&self, c: &mut Self::ControlPort) -> WorkloadResult<()> {
         c.query_parse::<()>(&query!(format!(
             "DROP SPACE ALLOW NOT EMPTY {DEFAULT_SPACE}"
         )))
@@ -118,37 +128,69 @@ impl Workload for UniformV1Std {
         unsafe { setup::instance() }.object_count() * 4
     }
     fn generate_tasks() -> impl IntoIterator<Item = Self::WorkloadContext> {
+        let setup = unsafe { setup::instance() };
         [
-            UniformV1Task::new("INSERT", |unique_id| {
-                query!(
-                    format!("INS into {DEFAULT_MODEL}(?, ?)"),
-                    unsafe { setup::instance() }.fmt_pk(unique_id),
-                    0u8
-                )
-            }),
-            UniformV1Task::new("UPDATE", |unique_id| {
-                query!(
-                    format!("UPD {DEFAULT_MODEL} SET v += ? WHERE k = ?"),
-                    1u8,
-                    unsafe { setup::instance() }.fmt_pk(unique_id),
-                )
-            }),
-            UniformV1Task::new("SELECT", |unique_id| {
-                query!(
-                    format!("SEL v FROM {DEFAULT_MODEL} WHERE k = ?"),
-                    unsafe { setup::instance() }.fmt_pk(unique_id),
-                )
-            }),
-            UniformV1Task::new("DELETE", |unique_id| {
-                query!(
-                    format!("DEL FROM {DEFAULT_MODEL} WHERE k = ?"),
-                    unsafe { setup::instance() }.fmt_pk(unique_id),
-                )
-            }),
+            UniformV1Task::new(
+                "INSERT",
+                format!(
+                    "Query='INS INTO db.db(?, ?)'; Params={}B binary key, 0 UInt8 value",
+                    setup.object_size()
+                ),
+                |unique_id| {
+                    query!(
+                        format!("INS into {DEFAULT_MODEL}(?, ?)"),
+                        unsafe { setup::instance() }.fmt_pk(unique_id),
+                        0u8
+                    )
+                },
+            ),
+            UniformV1Task::new(
+                "UPDATE",
+                format!(
+                    "Query='UPD db.db SET v += ? WHERE k = ?'; Params={}B binary key, 1 UInt8 value",
+                    setup.object_size()
+                ),
+                |unique_id| {
+                    query!(
+                        format!("UPD {DEFAULT_MODEL} SET v += ? WHERE k = ?"),
+                        1u8,
+                        unsafe { setup::instance() }.fmt_pk(unique_id),
+                    )
+                },
+            ),
+            UniformV1Task::new(
+                "SELECT",
+                format!(
+                    "Query='SEL v FROM db.db WHERE k = ?'; Params={}B binary key",
+                    setup.object_size()
+                ),
+                |unique_id| {
+                    query!(
+                        format!("SEL v FROM {DEFAULT_MODEL} WHERE k = ?"),
+                        unsafe { setup::instance() }.fmt_pk(unique_id),
+                    )
+                },
+            ),
+            UniformV1Task::new(
+                "DELETE",
+                format!(
+                    "Query='DEL FROM db.db WHERE k = ?'; Params={}B binary key",
+                    setup.object_size()
+                ),
+                |unique_id| {
+                    query!(
+                        format!("DEL FROM {DEFAULT_MODEL} WHERE k = ?"),
+                        unsafe { setup::instance() }.fmt_pk(unique_id),
+                    )
+                },
+            ),
         ]
     }
     fn task_id(t: &Self::WorkloadContext) -> &'static str {
         t.id
+    }
+    fn task_description(t: &Self::WorkloadContext) -> Option<Box<str>> {
+        Some(t.description.as_ref().clone())
     }
     fn task_query_count(_: &Self::WorkloadContext) -> usize {
         unsafe { setup::instance() }.object_count()
@@ -183,14 +225,19 @@ impl Workload for UniformV1Std {
         _: &mut Self::TaskExecContext,
         data_port: &mut Self::DataPort,
         pl: Self::WorkloadPayload,
-    ) -> impl Future<Output = WorkloadResult<(Instant, Instant)>> + Send {
+    ) -> impl Future<Output = WorkloadResult<PayloadExecStats>> + Send {
         async move {
             let start = Instant::now();
             // fully run a query by validating it, allocating any lists or maps or blobs
             // like you would in a real world application
-            let _ = data_port.query(&pl).await?;
+            let (_, stat) = data_port.debug_query_latency(&pl).await?;
             let stop = Instant::now();
-            Ok((start, stop))
+            Ok(PayloadExecStats::new(
+                stat.ttfb_micros(),
+                stat.full_resp(),
+                start,
+                stop,
+            ))
         }
     }
     #[inline(always)]

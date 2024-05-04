@@ -28,7 +28,7 @@ pub mod runtime;
 
 use {
     self::runtime::{fury, rookie},
-    crate::{args::LegacyBenchEngine, error::BenchResult, setup, stats::RuntimeStats},
+    crate::{args::LegacyBenchEngine, error::BenchResult, setup, stats, stats::RuntimeStats},
     skytable::{
         error::Error,
         query,
@@ -47,7 +47,7 @@ const BENCHMARK_MODEL_ID: &'static str = "bench";
 
 pub fn run_bench(
     legacy_workload: LegacyBenchEngine,
-) -> BenchResult<(u64, Vec<(&'static str, RuntimeStats)>)> {
+) -> BenchResult<Vec<(&'static str, RuntimeStats)>> {
     let config_instance = unsafe { setup::instance() };
     let config = Config::new(
         config_instance.host(),
@@ -63,7 +63,16 @@ pub fn run_bench(
     if let Err(e) = cleanup_db(db) {
         error!("failed to clean up DB: {e}");
     }
-    ret
+    match ret {
+        Ok((total_queries, results)) => {
+            info!(
+                "{} queries executed. benchmark complete.",
+                stats::fmt_u64(total_queries)
+            );
+            Ok(results)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /*

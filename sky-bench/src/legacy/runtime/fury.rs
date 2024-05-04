@@ -209,7 +209,7 @@ impl Fury {
             remaining -= 1;
         }
         Ok(RuntimeStats {
-            qps: stats::qps(
+            qps: stats::qps_with_nanos(
                 count,
                 global_stop
                     .unwrap()
