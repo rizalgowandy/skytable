@@ -2,6 +2,22 @@
 
 All changes in this project will be noted in this file.
 
+## Version 0.8.3
+
+### Additions
+
+- Benchmark tool:
+  - Supports *full spectrum latency analysis* and offers advanced insight into executed queries:
+    - Latency distributions
+    - Mean/Min/Max/Stdev statistics
+    - Details about executed workload and its tasks with clear descriptions of what was executed
+  - Switch to using `workload` based benchmarks
+
+### Fixes
+
+- Benchmark tool:
+  - Running a SIGINT now gracefully terminates the workload
+
 ## Version 0.8.2
 
 ### Additions

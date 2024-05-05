@@ -25,7 +25,11 @@
 */
 
 use {
-    crate::error::{BenchError, BenchResult},
+    crate::{
+        error::{BenchError, BenchResult},
+        setup,
+        workload::{workloads, Workload},
+    },
     libsky::{env_vars, CliAction},
     std::{collections::hash_map::HashMap, env},
 };
@@ -44,44 +48,32 @@ pub enum Task {
     BenchConfig(BenchConfig),
 }
 
-#[derive(Debug, PartialEq)]
-pub enum BenchEngine {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum LegacyBenchEngine {
     Rookie,
     Fury,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum BenchType {
+    Workload(BenchWorkload),
+    Legacy(LegacyBenchEngine),
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum BenchWorkload {
+    UniformV1,
+}
+
 #[derive(Debug)]
 pub struct BenchConfig {
-    pub host: String,
-    pub port: u16,
-    pub root_pass: String,
-    pub threads: usize,
-    pub key_size: usize,
-    pub query_count: usize,
-    pub engine: BenchEngine,
-    pub connections: usize,
+    pub workload: BenchType,
 }
 
 impl BenchConfig {
-    pub fn new(
-        host: String,
-        port: u16,
-        root_pass: String,
-        threads: usize,
-        key_size: usize,
-        query_count: usize,
-        engine: BenchEngine,
-        connections: usize,
-    ) -> Self {
+    pub fn new(bench_type: BenchType) -> Self {
         Self {
-            host,
-            port,
-            root_pass,
-            threads,
-            key_size,
-            query_count,
-            engine,
-            connections,
+            workload: bench_type,
         }
     }
 }
@@ -103,7 +95,7 @@ fn cdig(n: usize) -> usize {
     }
 }
 
-pub fn parse() -> BenchResult<Task> {
+pub fn parse_and_setup() -> BenchResult<Task> {
     let mut args = match load_env()? {
         TaskInner::HelpMsg(msg) => return Ok(Task::HelpMsg(msg)),
         TaskInner::CheckConfig(args) => args,
@@ -141,7 +133,7 @@ pub fn parse() -> BenchResult<Task> {
         }
     };
     // password
-    let passsword = match args.remove("--password") {
+    let password = match args.remove("--password") {
         Some(p) => p,
         None => {
             // check env?
@@ -187,26 +179,39 @@ pub fn parse() -> BenchResult<Task> {
             Err(_) | Ok(_) => return Err(BenchError::ArgsErr(format!("incorrect value for `--keysize`. must be set to a value that can be used to generate atleast {query_count} unique primary keys"))),
         }
     };
-    let engine = match args.remove("--engine") {
-        None => {
-            warn!("engine unspecified. choosing 'fury'");
-            BenchEngine::Fury
-        }
-        Some(engine) => match engine.as_str() {
-            "rookie" => BenchEngine::Rookie,
-            "fury" => BenchEngine::Fury,
+    let workload = match args.remove("--workload") {
+        Some(workload) => match workload.as_str() {
+            workloads::UniformV1Std::ID => BenchType::Workload(BenchWorkload::UniformV1),
             _ => {
                 return Err(BenchError::ArgsErr(format!(
-                    "bad value for `--engine`. got `{engine}` but expected warp or rookie"
+                    "unknown workload choice {workload}"
                 )))
             }
+        },
+        None => match args.remove("--engine") {
+            None => {
+                warn!(
+                    "workload not specified. choosing default workload '{}'",
+                    workloads::UniformV1Std::ID
+                );
+                BenchType::Workload(BenchWorkload::UniformV1)
+            }
+            Some(engine) => BenchType::Legacy(match engine.as_str() {
+                "rookie" => LegacyBenchEngine::Rookie,
+                "fury" => LegacyBenchEngine::Fury,
+                _ => {
+                    return Err(BenchError::ArgsErr(format!(
+                        "bad value for `--engine`. got `{engine}` but expected warp or rookie"
+                    )))
+                }
+            }),
         },
     };
     let connections = match args.remove("--connections") {
         None => num_cpus::get() * 8,
         Some(c) => match c.parse::<usize>() {
             Ok(s) if s != 0 => {
-                if engine == BenchEngine::Rookie {
+                if workload == BenchType::Legacy(LegacyBenchEngine::Rookie) {
                     return Err(BenchError::ArgsErr(format!(
                         "the 'rookie' engine does not support explicit connection count. the number of threads is the connection count"
                     )));
@@ -221,16 +226,19 @@ pub fn parse() -> BenchResult<Task> {
         },
     };
     if args.is_empty() {
-        Ok(Task::BenchConfig(BenchConfig::new(
-            host,
-            port,
-            passsword,
-            thread_count,
-            key_size,
-            query_count,
-            engine,
-            connections,
-        )))
+        unsafe {
+            setup::configure(
+                "root".into(),
+                password,
+                host,
+                port,
+                thread_count,
+                connections,
+                key_size,
+                query_count,
+            )
+        }
+        Ok(Task::BenchConfig(BenchConfig::new(workload)))
     } else {
         Err(BenchError::ArgsErr(format!("unrecognized arguments")))
     }

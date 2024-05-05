@@ -21,8 +21,13 @@ OPTIONS:
     --keysize     Set the default primary key size. defaults to 7
     --rowcount    Set the number of rows to be manipulated for the benchmark
                   Defaults to 1,000,000 rows.
-    --engine      Set the engine for benchmarking. `rookie` is the stable engine
+    --workload    Set the workload to run (see below).
+    --engine      (DEPRECATED) Set the engine for benchmarking. `rookie` is the stable engine
                   and `fury` is the new experimental engine. Defaults to `fury`
+
+WORKLOADS:
+- 'std_uniform_v1': (current default) This real-world workload creates and manipulates unique
+                    rows with an uniform distribution of executed queries
 
 NOTES:
     - If no password is supplied, we look for the `{password_env_var}`

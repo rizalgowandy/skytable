@@ -26,8 +26,11 @@
 
 use {
     crate::{
-        bench::BombardTask,
-        runtime::{fury, rookie::BombardError},
+        legacy::{
+            runtime::{fury, rookie::BombardError},
+            BombardTask,
+        },
+        workload::error::WorkloadError,
     },
     core::fmt,
     skytable::error::Error,
@@ -38,14 +41,22 @@ pub type BenchResult<T> = Result<T, BenchError>;
 #[derive(Debug)]
 pub enum BenchError {
     ArgsErr(String),
-    RookieEngineError(BombardError<BombardTask>),
-    FuryEngineError(fury::FuryError),
     DirectDbError(Error),
+    WorkloadDriverError(WorkloadError),
+    // legacy
+    LegacyRookieEngineError(BombardError<BombardTask>),
+    LegacyFuryEngineError(fury::FuryError),
 }
 
 impl From<fury::FuryError> for BenchError {
     fn from(e: fury::FuryError) -> Self {
-        Self::FuryEngineError(e)
+        Self::LegacyFuryEngineError(e)
+    }
+}
+
+impl From<WorkloadError> for BenchError {
+    fn from(e: WorkloadError) -> Self {
+        Self::WorkloadDriverError(e)
     }
 }
 
@@ -70,7 +81,7 @@ impl From<Error> for BenchError {
 
 impl From<BombardError<BombardTask>> for BenchError {
     fn from(e: BombardError<BombardTask>) -> Self {
-        Self::RookieEngineError(e)
+        Self::LegacyRookieEngineError(e)
     }
 }
 
@@ -79,8 +90,10 @@ impl fmt::Display for BenchError {
         match self {
             Self::ArgsErr(e) => write!(f, "args error: {e}"),
             Self::DirectDbError(e) => write!(f, "direct operation on db failed. {e}"),
-            Self::RookieEngineError(e) => write!(f, "benchmark failed (rookie engine): {e}"),
-            Self::FuryEngineError(e) => write!(f, "benchmark failed (fury engine): {e}"),
+            Self::WorkloadDriverError(e) => write!(f, "workload driver failed. {e}"),
+            // legacy
+            Self::LegacyRookieEngineError(e) => write!(f, "benchmark failed (rookie engine): {e}"),
+            Self::LegacyFuryEngineError(e) => write!(f, "benchmark failed (fury engine): {e}"),
         }
     }
 }

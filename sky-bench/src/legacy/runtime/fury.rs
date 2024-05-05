@@ -25,8 +25,11 @@
 */
 
 use {
-    super::{RuntimeStats, WorkerLocalStats, WorkerTask},
-    crate::bench::{BenchmarkTask, BENCHMARK_SPACE_ID},
+    super::{
+        super::{BenchmarkTask, BENCHMARK_SPACE_ID},
+        WorkerTask,
+    },
+    crate::stats::{self, RuntimeStats, WorkerLocalStats},
     skytable::Config,
     std::{
         fmt,
@@ -206,7 +209,7 @@ impl Fury {
             remaining -= 1;
         }
         Ok(RuntimeStats {
-            qps: super::qps(
+            qps: stats::qps_with_nanos(
                 count,
                 global_stop
                     .unwrap()

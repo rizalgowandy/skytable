@@ -27,43 +27,8 @@
 pub mod fury;
 pub mod rookie;
 
-use std::time::Instant;
-
-fn qps(query_count: usize, time_taken_in_nanos: u128) -> f64 {
-    const NANOS_PER_SECOND: u128 = 1_000_000_000;
-    let time_taken_in_nanos_f64 = time_taken_in_nanos as f64;
-    let query_count_f64 = query_count as f64;
-    (query_count_f64 / time_taken_in_nanos_f64) * NANOS_PER_SECOND as f64
-}
-
 #[derive(Debug, Clone)]
 pub(self) enum WorkerTask<T> {
     Task(T),
     Exit,
-}
-
-#[derive(Debug)]
-pub struct RuntimeStats {
-    pub qps: f64,
-    pub head: u128,
-    pub tail: u128,
-}
-
-#[derive(Debug)]
-struct WorkerLocalStats {
-    start: Instant,
-    elapsed: u128,
-    head: u128,
-    tail: u128,
-}
-
-impl WorkerLocalStats {
-    fn new(start: Instant, elapsed: u128, head: u128, tail: u128) -> Self {
-        Self {
-            start,
-            elapsed,
-            head,
-            tail,
-        }
-    }
 }

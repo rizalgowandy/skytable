@@ -25,7 +25,8 @@
 */
 
 use {
-    super::{RuntimeStats, WorkerLocalStats, WorkerTask},
+    super::WorkerTask,
+    crate::stats::{self, RuntimeStats, WorkerLocalStats},
     crossbeam_channel::{unbounded, Receiver, Sender},
     std::{
         fmt::{self, Display},
@@ -356,7 +357,7 @@ impl<Bt: ThreadedBombardTask> BombardPool<Bt> {
                 .duration_since(global_start.unwrap())
                 .as_nanos();
             Ok(RuntimeStats {
-                qps: super::qps(count, global_elapsed),
+                qps: stats::qps_with_nanos(count, global_elapsed),
                 head: global_head,
                 tail: global_tail,
             })
