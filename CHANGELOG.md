@@ -7,6 +7,10 @@ All changes in this project will be noted in this file.
 ### Additions
 
 - Benchmark tool:
+  - Supports *full spectrum latency analysis* and offers advanced insight into executed queries:
+    - Latency distributions
+    - Mean/Min/Max/Stdev statistics
+    - Details about executed workload and its tasks with clear descriptions of what was executed
   - Switch to using `workload` based benchmarks
 
 ### Fixes
