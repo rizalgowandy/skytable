@@ -26,6 +26,7 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     error::Error,
     fmt,
+    str::FromStr,
 };
 
 /*
@@ -43,6 +44,7 @@ pub enum CliArgsError {
     DuplicateOption(String),
     SubcommandDisallowed,
     ArgParseError(String),
+    Other(String),
 }
 
 impl fmt::Display for CliArgsError {
@@ -53,6 +55,7 @@ impl fmt::Display for CliArgsError {
             Self::DuplicateOption(opt) => write!(f, "found duplicate option `--{opt}`"),
             Self::SubcommandDisallowed => write!(f, "subcommands are disallowed in this context"),
             Self::ArgParseError(arg) => write!(f, "failed to parse value assigned to `--{arg}`"),
+            Self::Other(e) => write!(f, "{e}"),
         }
     }
 }
@@ -75,6 +78,7 @@ pub trait CliArgsDecode: Sized {
     ) -> CliResult<Self>;
     fn yield_command(data: Self::Data) -> CliResult<Self>;
     fn yield_help(data: Self::Data) -> CliResult<Self>;
+    fn yield_version(data: Self::Data) -> CliResult<Self>;
 }
 
 pub trait CommandLineArgs: Sized + CliArgsDecode {
@@ -162,53 +166,65 @@ fn decode_args<C: CliArgsDecode, const HAS_BINARY_NAME: bool>(
     let mut cli_data = C::initialize::<HAS_BINARY_NAME>(&mut args);
     while let Some(arg) = args.next() {
         let arg = arg.as_str();
-        if arg == "-h" || arg == "--help" {
+        let arg = if arg == "-h" || arg == "--help" {
             return C::yield_help(cli_data);
+        } else if arg == "-v" || arg == "--version" {
+            return C::yield_version(cli_data);
+        } else {
+            if arg.starts_with("--") {
+                // option or flag
+                &arg[2..]
+            } else if arg.starts_with("-") {
+                if arg.len() != 2 {
+                    // invalid shorthand
+                    return Err(CliArgsError::Other(format!(
+                        "the argument `{arg}` is formatted incorrectly"
+                    )));
+                }
+                // option or flag
+                &arg[1..]
+            } else {
+                // this is subcommand
+                return C::yield_subcommand(cli_data, arg.boxed_str(), args);
+            }
+        };
+        if arg.is_empty() {
+            return Err(CliArgsError::ArgFmtError(format!("invalid argument")));
         }
-        if arg.starts_with("--") {
-            // option or flag
-            let arg = &arg[2..];
-            if arg.is_empty() {
-                return Err(CliArgsError::ArgFmtError(format!("invalid argument")));
-            }
-            // is this arg in the --x=y format?
-            let mut arg_split = arg.split("=");
-            let (arg_split_name_, arg_split_value_) = (arg_split.next(), arg_split.next());
-            match (arg_split_name_, arg_split_value_) {
-                (Some(name_), Some(value_)) => {
-                    if name_.is_empty() || value_.is_empty() {
-                        return Err(CliArgsError::ArgFmtError(arg.to_string()));
-                    }
-                    // yes, it was formatted this way
-                    C::push_option(&mut cli_data, name_.boxed_str(), value_.boxed_str())?;
-                    continue;
+        // is this arg in the --x=y format?
+        let mut arg_split = arg.split("=");
+        let (arg_split_name_, arg_split_value_) = (arg_split.next(), arg_split.next());
+        match (arg_split_name_, arg_split_value_) {
+            (Some(name_), Some(value_)) => {
+                if name_.is_empty() || value_.is_empty() {
+                    return Err(CliArgsError::ArgFmtError(arg.to_string()));
                 }
-                (Some(_), None) => {}
-                _ => unreachable!(),
+                // yes, it was formatted this way
+                C::push_option(&mut cli_data, name_.boxed_str(), value_.boxed_str())?;
+                continue;
             }
-            // no, probably in the --x y format
-            match args.peek() {
-                Some(arg_) => {
-                    if arg_.as_str().starts_with("--") || arg_.as_str().starts_with("-") {
-                        // flag
-                        C::push_flag(&mut cli_data, arg.boxed_str())?;
-                    } else {
-                        // option
-                        C::push_option(
-                            &mut cli_data,
-                            arg.boxed_str(),
-                            args.next().unwrap().boxed_str(),
-                        )?;
-                    }
-                }
-                None => {
+            (Some(_), None) => {}
+            _ => unreachable!(),
+        }
+        // no, probably in the --x y format
+        match args.peek() {
+            Some(arg_) => {
+                if arg_.as_str().starts_with("--") || arg_.as_str().starts_with("-") {
                     // flag
                     C::push_flag(&mut cli_data, arg.boxed_str())?;
+                } else {
+                    // option
+                    C::push_option(
+                        &mut cli_data,
+                        arg.boxed_str(),
+                        args.next().unwrap().boxed_str(),
+                    )?;
                 }
             }
-        } else {
-            // this is subcommand
-            return C::yield_subcommand(cli_data, arg.boxed_str(), args);
+            None => {
+                // flag
+                C::push_flag(&mut cli_data, arg.boxed_str())?;
+            }
         }
     }
     C::yield_command(cli_data)
@@ -222,12 +238,31 @@ fn decode_args<C: CliArgsDecode, const HAS_BINARY_NAME: bool>(
 pub enum CliCommand<Opt: CliArgsOptions> {
     Help(CliCommandData<Opt>),
     Run(CliCommandData<Opt>),
+    Version(CliCommandData<Opt>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CliCommandData<Opt: CliArgsOptions> {
-    pub options: Opt,
-    pub flags: HashSet<Box<str>>,
+    options: Opt,
+    flags: HashSet<Box<str>>,
+}
+
+impl CliCommandData<SingleOption> {
+    pub fn take_option(&mut self, option: &str) -> Option<Box<str>> {
+        self.options.remove(option)
+    }
+    pub fn parse_take_option<T: FromStr>(&mut self, option: &str) -> CliResult<Option<T>> {
+        match self.options.remove(option) {
+            Some(opt) => match opt.parse() {
+                Ok(opt) => Ok(Some(opt)),
+                Err(_) => Err(CliArgsError::ArgParseError(option.to_owned())),
+            },
+            None => Ok(None),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.options.is_empty() && self.flags.is_empty()
+    }
 }
 
 impl<Opt: CliArgsOptions> CliArgsDecode for CliCommand<Opt> {
@@ -269,6 +304,9 @@ impl<Opt: CliArgsOptions> CliArgsDecode for CliCommand<Opt> {
     fn yield_help(data: Self::Data) -> CliResult<Self> {
         Ok(CliCommand::Help(data))
     }
+    fn yield_version(data: Self::Data) -> CliResult<Self> {
+        Ok(CliCommand::Version(data))
+    }
 }
 
 /*
@@ -279,8 +317,10 @@ impl<Opt: CliArgsOptions> CliArgsDecode for CliCommand<Opt> {
 pub enum CliMultiCommand<OptR: CliArgsOptions, OptS: CliArgsOptions> {
     Run(CliCommandData<OptR>),
     Help(CliCommandData<OptR>),
+    Version(CliCommandData<OptR>),
     Subcommand(CliCommandData<OptR>, Subcommand<OptS>),
     SubcommandHelp(CliCommandData<OptR>, Subcommand<OptS>),
+    SubcommandVersion(CliCommandData<OptR>, Subcommand<OptS>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -340,7 +380,14 @@ impl<OptR: CliArgsOptions, OptS: CliArgsOptions> CliArgsDecode for CliMultiComma
                 data,
                 Subcommand::new(subcommand, subcommand_data),
             )),
+            CliCommand::Version(subcommand_data) => Ok(CliMultiCommand::SubcommandVersion(
+                data,
+                Subcommand::new(subcommand, subcommand_data),
+            )),
         }
+    }
+    fn yield_version(data: Self::Data) -> CliResult<Self> {
+        Ok(Self::Version(data))
     }
 }
 

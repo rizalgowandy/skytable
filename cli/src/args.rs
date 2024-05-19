@@ -30,9 +30,11 @@ use {
         event::{self, Event, KeyCode, KeyEvent},
         terminal,
     },
-    libsky::{env_vars, CliAction},
+    libsky::{
+        cli_utils::{CliCommand, CliCommandData, CommandLineArgs, SingleOption},
+        env_vars,
+    },
     std::{
-        collections::HashMap,
         env, fs,
         io::{self, Write},
         process::exit,
@@ -43,13 +45,13 @@ const TXT_HELP: &str = include_str!(concat!(env!("OUT_DIR"), "/skysh"));
 
 #[derive(Debug)]
 pub struct ClientConfig {
-    pub kind: ClientConfigKind,
+    pub kind: EndpointConfig,
     pub username: String,
     pub password: String,
 }
 
 impl ClientConfig {
-    pub fn new(kind: ClientConfigKind, username: String, password: String) -> Self {
+    pub fn new(kind: EndpointConfig, username: String, password: String) -> Self {
         Self {
             kind,
             username,
@@ -59,7 +61,7 @@ impl ClientConfig {
 }
 
 #[derive(Debug)]
-pub enum ClientConfigKind {
+pub enum EndpointConfig {
     Tcp(String, u16),
     Tls(String, u16, String),
 }
@@ -73,15 +75,15 @@ pub enum Task {
 
 enum TaskInner {
     HelpMsg(String),
-    OpenShell(HashMap<String, String>),
+    OpenShell(CliCommandData<SingleOption>),
 }
 
 fn load_env() -> CliResult<TaskInner> {
-    let action = libsky::parse_cli_args_disallow_duplicate()?;
+    let action = CliCommand::<SingleOption>::from_cli()?;
     match action {
-        CliAction::Help => Ok(TaskInner::HelpMsg(TXT_HELP.into())),
-        CliAction::Version => Ok(TaskInner::HelpMsg(libsky::version_msg("skysh"))),
-        CliAction::Action(a) => Ok(TaskInner::OpenShell(a)),
+        CliCommand::Help(_) => Ok(TaskInner::HelpMsg(TXT_HELP.into())),
+        CliCommand::Version(_) => Ok(TaskInner::HelpMsg(libsky::version_msg("skysh"))),
+        CliCommand::Run(a) => Ok(TaskInner::OpenShell(a)),
     }
 }
 
@@ -90,8 +92,8 @@ pub fn parse() -> CliResult<Task> {
         TaskInner::HelpMsg(msg) => return Ok(Task::HelpMessage(msg)),
         TaskInner::OpenShell(args) => args,
     };
-    let endpoint = match args.remove("--endpoint") {
-        None => ClientConfigKind::Tcp("127.0.0.1".into(), 2003),
+    let endpoint = match args.take_option("endpoint") {
+        None => EndpointConfig::Tcp("127.0.0.1".into(), 2003),
         Some(ep) => {
             // should be in the format protocol@host:port
             let proto_host_port: Vec<&str> = ep.split("@").collect();
@@ -112,18 +114,18 @@ pub fn parse() -> CliResult<Task> {
                     )))
                 }
             };
-            let tls_cert = args.remove("--tls-cert");
+            let tls_cert = args.take_option("tls-cert");
             match protocol {
                 "tcp" => {
                     // TODO(@ohsayan): warn!
-                    ClientConfigKind::Tcp(host.into(), port)
+                    EndpointConfig::Tcp(host.into(), port)
                 }
                 "tls" => {
                     // we need a TLS cert
                     match tls_cert {
                         Some(path) => {
-                            let cert = fs::read_to_string(path)?;
-                            ClientConfigKind::Tls(host.into(), port, cert)
+                            let cert = fs::read_to_string(path.as_ref())?;
+                            EndpointConfig::Tls(host.into(), port, cert)
                         }
                         None => {
                             return Err(CliError::ArgsErr(format!(
@@ -140,15 +142,15 @@ pub fn parse() -> CliResult<Task> {
             }
         }
     };
-    let username = match args.remove("--user") {
+    let username = match args.take_option("user") {
         Some(u) => u,
         None => {
             // default
             "root".into()
         }
     };
-    let password = match args.remove("--password") {
-        Some(p) => check_password(p, "cli arguments")?,
+    let password = match args.take_option("password") {
+        Some(p) => check_password(p.into(), "cli arguments")?,
         None => {
             // let us check the environment variable to see if anything was set
             match env::var(env_vars::SKYDB_PASSWORD) {
@@ -157,11 +159,11 @@ pub fn parse() -> CliResult<Task> {
             }
         }
     };
-    let eval = args.remove("--eval").or_else(|| args.remove("-e"));
+    let eval = args.take_option("eval").or_else(|| args.take_option("e"));
     if args.is_empty() {
-        let client = ClientConfig::new(endpoint, username, password);
+        let client = ClientConfig::new(endpoint, username.into(), password);
         match eval {
-            Some(query) => Ok(Task::ExecOnce(client, query)),
+            Some(query) => Ok(Task::ExecOnce(client, query.into())),
             None => Ok(Task::OpenShell(client)),
         }
     } else {
