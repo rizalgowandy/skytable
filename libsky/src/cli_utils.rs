@@ -24,7 +24,8 @@
 */
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
-    str::FromStr,
+    error::Error,
+    fmt,
 };
 
 /*
@@ -32,6 +33,8 @@ use std::{
 */
 
 pub type CliResult<T> = Result<T, CliArgsError>;
+pub type SingleOption = HashMap<Box<str>, Box<str>>;
+pub type MultipleOptions = HashMap<Box<str>, Vec<Box<str>>>;
 
 #[derive(Debug)]
 pub enum CliArgsError {
@@ -41,6 +44,20 @@ pub enum CliArgsError {
     SubcommandDisallowed,
     ArgParseError(String),
 }
+
+impl fmt::Display for CliArgsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ArgFmtError(arg) => write!(f, "the argument `--{arg}` is formatted incorrectly"),
+            Self::DuplicateFlag(flag) => write!(f, "found duplicate flag `--{flag}`"),
+            Self::DuplicateOption(opt) => write!(f, "found duplicate option `--{opt}`"),
+            Self::SubcommandDisallowed => write!(f, "subcommands are disallowed in this context"),
+            Self::ArgParseError(arg) => write!(f, "failed to parse value assigned to `--{arg}`"),
+        }
+    }
+}
+
+impl Error for CliArgsError {}
 
 pub trait CliArgsDecode: Sized {
     type Data;
@@ -98,6 +115,34 @@ impl ArgItem for String {
     }
 }
 
+pub trait CliArgsOptions: Default {
+    fn push_option(&mut self, option: Box<str>, value: Box<str>) -> CliResult<()>;
+}
+
+impl CliArgsOptions for SingleOption {
+    fn push_option(&mut self, option: Box<str>, value: Box<str>) -> CliResult<()> {
+        match self.entry(option) {
+            Entry::Vacant(ve) => {
+                ve.insert(value);
+                Ok(())
+            }
+            Entry::Occupied(oe) => return Err(CliArgsError::DuplicateOption(oe.key().to_string())),
+        }
+    }
+}
+
+impl CliArgsOptions for MultipleOptions {
+    fn push_option(&mut self, option: Box<str>, value: Box<str>) -> CliResult<()> {
+        match self.entry(option) {
+            Entry::Occupied(mut oe) => oe.get_mut().push(value),
+            Entry::Vacant(ve) => {
+                ve.insert(vec![value]);
+            }
+        }
+        Ok(())
+    }
+}
+
 /*
     args decoder
 */
@@ -132,9 +177,7 @@ fn decode_args<C: CliArgsDecode, const HAS_BINARY_NAME: bool>(
             match (arg_split_name_, arg_split_value_) {
                 (Some(name_), Some(value_)) => {
                     if name_.is_empty() || value_.is_empty() {
-                        return Err(CliArgsError::ArgFmtError(format!(
-                            "the argument `{arg}` was formatted incorrectly"
-                        )));
+                        return Err(CliArgsError::ArgFmtError(arg.to_string()));
                     }
                     // yes, it was formatted this way
                     C::push_option(&mut cli_data, name_.boxed_str(), value_.boxed_str())?;
@@ -176,43 +219,22 @@ fn decode_args<C: CliArgsDecode, const HAS_BINARY_NAME: bool>(
 */
 
 #[derive(Debug, PartialEq)]
-pub enum CliCommand {
-    Help(CliCommandData),
-    Run(CliCommandData),
+pub enum CliCommand<Opt: CliArgsOptions> {
+    Help(CliCommandData<Opt>),
+    Run(CliCommandData<Opt>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct CliCommandData {
-    options: HashMap<Box<str>, Box<str>>,
-    flags: HashSet<Box<str>>,
+pub struct CliCommandData<Opt: CliArgsOptions> {
+    pub options: Opt,
+    pub flags: HashSet<Box<str>>,
 }
 
-impl CliCommandData {
-    pub fn is_empty(&self) -> bool {
-        self.options.is_empty() && self.flags.is_empty()
-    }
-    pub fn take_flag(&mut self, name: &str) -> bool {
-        self.flags.remove(name)
-    }
-    pub fn take_option(&mut self, option_name: &str) -> Option<Box<str>> {
-        self.options.remove(option_name)
-    }
-    pub fn take_option_into<T: FromStr>(&mut self, option_name: &str) -> CliResult<Option<T>> {
-        match self.take_option(option_name).map(|s| s.parse()) {
-            None => Ok(None),
-            Some(Ok(v)) => Ok(Some(v)),
-            Some(Err(_)) => Err(CliArgsError::ArgParseError(format!(
-                "failed to parse option `{option_name}`"
-            ))),
-        }
-    }
-}
-
-impl CliArgsDecode for CliCommand {
-    type Data = CliCommandData;
+impl<Opt: CliArgsOptions> CliArgsDecode for CliCommand<Opt> {
+    type Data = CliCommandData<Opt>;
     fn initialize<const SWITCH: bool>(
         iter: &mut impl Iterator<Item = impl ArgItem>,
-    ) -> CliCommandData {
+    ) -> CliCommandData<Opt> {
         if SWITCH {
             let _binary_name = iter.next();
         }
@@ -223,9 +245,7 @@ impl CliArgsDecode for CliCommand {
     }
     fn push_flag(data: &mut Self::Data, flag: Box<str>) -> CliResult<()> {
         if !data.flags.insert(flag.to_owned()) {
-            return Err(CliArgsError::DuplicateFlag(format!(
-                "found duplicate flag --{flag}"
-            )));
+            return Err(CliArgsError::DuplicateFlag(flag.to_string()));
         }
         Ok(())
     }
@@ -234,16 +254,7 @@ impl CliArgsDecode for CliCommand {
         option_name: Box<str>,
         option_value: Box<str>,
     ) -> CliResult<()> {
-        match data.options.entry(option_name) {
-            Entry::Vacant(ve) => {
-                ve.insert(option_value.to_owned());
-                Ok(())
-            }
-            Entry::Occupied(oe) => Err(CliArgsError::DuplicateOption(format!(
-                "found duplicate option --{}",
-                oe.key()
-            ))),
-        }
+        data.options.push_option(option_name, option_value)
     }
     fn yield_subcommand(
         _: Self::Data,
@@ -265,59 +276,48 @@ impl CliArgsDecode for CliCommand {
 */
 
 #[derive(Debug, PartialEq)]
-pub enum CliMultiCommand {
-    Run(CliCommandData),
-    Subcommand(Subcommand),
-    Help(CliCommandData),
-    SubcommandHelp(Subcommand),
+pub enum CliMultiCommand<OptR: CliArgsOptions, OptS: CliArgsOptions> {
+    Run(CliCommandData<OptR>),
+    Help(CliCommandData<OptR>),
+    Subcommand(CliCommandData<OptR>, Subcommand<OptS>),
+    SubcommandHelp(CliCommandData<OptR>, Subcommand<OptS>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Subcommand {
-    base_settings: CliCommandData,
+pub struct Subcommand<Opt: CliArgsOptions> {
     name: Box<str>,
-    settings: CliCommandData,
+    settings: CliCommandData<Opt>,
 }
 
-impl Subcommand {
-    fn new(base_settings: CliCommandData, name: Box<str>, settings: CliCommandData) -> Self {
-        Self {
-            base_settings,
-            name,
-            settings,
-        }
+impl<Opt: CliArgsOptions> Subcommand<Opt> {
+    fn new(name: Box<str>, settings: CliCommandData<Opt>) -> Self {
+        Self { name, settings }
     }
     pub fn name(&self) -> &str {
         &self.name
     }
-    pub fn base_settings(&self) -> &CliCommandData {
-        &self.base_settings
-    }
-    pub fn base_settings_mut(&mut self) -> &mut CliCommandData {
-        &mut self.base_settings
-    }
-    pub fn settings(&self) -> &CliCommandData {
+    pub fn settings(&self) -> &CliCommandData<Opt> {
         &self.settings
     }
-    pub fn settings_mut(&mut self) -> &mut CliCommandData {
+    pub fn settings_mut(&mut self) -> &mut CliCommandData<Opt> {
         &mut self.settings
     }
 }
 
-impl CliArgsDecode for CliMultiCommand {
-    type Data = CliCommandData;
+impl<OptR: CliArgsOptions, OptS: CliArgsOptions> CliArgsDecode for CliMultiCommand<OptR, OptS> {
+    type Data = CliCommandData<OptR>;
     fn initialize<const SWITCH: bool>(iter: &mut impl Iterator<Item = impl ArgItem>) -> Self::Data {
-        <CliCommand>::initialize::<SWITCH>(iter)
+        <CliCommand<OptR>>::initialize::<SWITCH>(iter)
     }
     fn push_flag(data: &mut Self::Data, flag: Box<str>) -> CliResult<()> {
-        <CliCommand>::push_flag(data, flag)
+        <CliCommand<OptR>>::push_flag(data, flag)
     }
     fn push_option(
         data: &mut Self::Data,
         option_name: Box<str>,
         option_value: Box<str>,
     ) -> CliResult<()> {
-        <CliCommand>::push_option(data, option_name, option_value)
+        <CliCommand<OptR>>::push_option(data, option_name, option_value)
     }
     fn yield_command(data: Self::Data) -> CliResult<Self> {
         Ok(Self::Run(data))
@@ -330,15 +330,15 @@ impl CliArgsDecode for CliMultiCommand {
         subcommand: Box<str>,
         args: impl IntoIterator<Item = impl ArgItem>,
     ) -> CliResult<Self> {
-        let subcommand_args = decode_args::<CliCommand, false>(args)?;
+        let subcommand_args = decode_args::<CliCommand<OptS>, false>(args)?;
         match subcommand_args {
-            CliCommand::Run(subcommand_data) => Ok(CliMultiCommand::Subcommand(Subcommand::new(
+            CliCommand::Run(subcommand_data) => Ok(CliMultiCommand::Subcommand(
                 data,
-                subcommand,
-                subcommand_data,
-            ))),
+                Subcommand::new(subcommand, subcommand_data),
+            )),
             CliCommand::Help(subcommand_data) => Ok(CliMultiCommand::SubcommandHelp(
-                Subcommand::new(data, subcommand, subcommand_data),
+                data,
+                Subcommand::new(subcommand, subcommand_data),
             )),
         }
     }
@@ -350,7 +350,7 @@ impl CliArgsDecode for CliMultiCommand {
 
 #[test]
 fn command() {
-    let cli = CliCommand::parse([
+    let cli = CliCommand::<SingleOption>::parse([
         "skyd",
         "--verify-cluster-seed-membership",
         "--auth-root-password",
@@ -378,6 +378,43 @@ fn command() {
 }
 
 #[test]
+fn command_multi() {
+    let cli = CliCommand::<MultipleOptions>::parse([
+        "skyd",
+        "--verify-cluster-seed-membership",
+        "--auth-root-password",
+        "mypassword12345678",
+        "--tls-only",
+        "--auth-plugin=pwd",
+        "--endpoint=tcp@localhost:2003",
+        "--endpoint=tls@localhost:2004",
+    ])
+    .unwrap();
+    assert_eq!(
+        cli,
+        CliCommand::Run(CliCommandData {
+            options: [
+                ("auth-root-password", &["mypassword12345678"][..]),
+                ("auth-plugin", &["pwd"]),
+                ("endpoint", &["tcp@localhost:2003", "tls@localhost:2004"])
+            ]
+            .into_iter()
+            .map(|(x, y)| (
+                x.to_owned().into_boxed_str(),
+                y.into_iter()
+                    .map(|x| x.to_string().into_boxed_str())
+                    .collect()
+            ))
+            .collect(),
+            flags: ["tls-only", "verify-cluster-seed-membership"]
+                .into_iter()
+                .map(|f| f.to_owned().into_boxed_str())
+                .collect()
+        })
+    )
+}
+
+#[test]
 fn subcommand() {
     let cli_input = [
         "skyd",
@@ -389,17 +426,17 @@ fn subcommand() {
         "myoldbackup",
         "--allow-different-host",
     ];
+    let base_settings = CliCommandData {
+        options: [("compat-driver", "v1")]
+            .into_iter()
+            .map(|(x, y)| (x.to_owned().into_boxed_str(), y.to_owned().into_boxed_str()))
+            .collect(),
+        flags: ["verify-cluster-membership"]
+            .into_iter()
+            .map(|f| f.to_owned().into_boxed_str())
+            .collect(),
+    };
     let expected_subcommand = Subcommand::new(
-        CliCommandData {
-            options: [("compat-driver", "v1")]
-                .into_iter()
-                .map(|(x, y)| (x.to_owned().into_boxed_str(), y.to_owned().into_boxed_str()))
-                .collect(),
-            flags: ["verify-cluster-membership"]
-                .into_iter()
-                .map(|f| f.to_owned().into_boxed_str())
-                .collect(),
-        },
         "restore".to_owned().into_boxed_str(),
         CliCommandData {
             options: [("driver", "v2"), ("name", "myoldbackup")]
@@ -413,8 +450,8 @@ fn subcommand() {
         },
     );
     assert_eq!(
-        CliMultiCommand::parse(cli_input).unwrap(),
-        CliMultiCommand::Subcommand(expected_subcommand.clone())
+        CliMultiCommand::<SingleOption, SingleOption>::parse(cli_input).unwrap(),
+        CliMultiCommand::Subcommand(base_settings.clone(), expected_subcommand.clone())
     );
     let cli_input = {
         let mut v = Vec::from(cli_input);
@@ -422,7 +459,7 @@ fn subcommand() {
         v
     };
     assert_eq!(
-        CliMultiCommand::parse(cli_input).unwrap(),
-        CliMultiCommand::SubcommandHelp(expected_subcommand)
+        CliMultiCommand::<SingleOption, SingleOption>::parse(cli_input).unwrap(),
+        CliMultiCommand::SubcommandHelp(base_settings, expected_subcommand)
     )
 }
