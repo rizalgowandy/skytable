@@ -31,6 +31,8 @@
 //!
 //! This contains modules which are shared by both the `cli` and the `server` modules
 
+pub mod cli_utils;
+
 /// The current version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The URL

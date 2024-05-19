@@ -5,13 +5,12 @@
 ███████ ██   ██    ██       ██    ██   ██ ██████  ███████ ███████
 
 Skytable {version} | https://github.com/skytable/skytable
+Skytable database server daemon (skyd)
 
-Sayan N. <ohsayan@outlook.com>
-Skytable database server
+Copyright (c) Sayan N. <ohsayan@outlook.com>
 
-Usage: skyd [OPTION]...
-
-skyd is the Skytable database server daemon and can be used to serve database requests.
+Usage: skyd [FLAGS] [OPTIONS]
+       skyd [FLAGS] [OPTIONS] [COMMAND] [OPTIONS]
 
 Commands:
   repair                        Check and repair any detected database storage errors
