@@ -28,6 +28,7 @@ use crate::{
     engine::config::{
         self, AuthDriver, CLIConfigParseReturn, ConfigAuth, ConfigEndpoint, ConfigEndpointTcp,
         ConfigEndpointTls, ConfigMode, ConfigReturn, ConfigSystem, Configuration, ParsedRawArgs,
+        TXT_HELP,
     },
     util::test_utils::with_files,
 };
@@ -136,7 +137,7 @@ fn parse_validate_cli_args_help_and_version() {
     let pl2 = "skyd --version";
     let ret1 = extract_cli_args_raw(pl1);
     let ret2 = extract_cli_args_raw(pl2);
-    assert_eq!(ret1, CLIConfigParseReturn::Help);
+    assert_eq!(ret1, CLIConfigParseReturn::Help(TXT_HELP.to_owned()));
     assert_eq!(ret2, CLIConfigParseReturn::Version);
     config::set_cli_src(vec!["skyd".into(), "--help".into()]);
     let ret3 = config::check_configuration().unwrap();

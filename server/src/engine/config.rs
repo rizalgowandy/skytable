@@ -655,7 +655,10 @@ fn arg_decode_rs_window<CS: ConfigurationSource>(
 */
 
 /// CLI help message
-pub(super) const TXT_HELP: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd"));
+pub(super) const TXT_HELP: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-help"));
+pub(super) const TXT_HELP_REPAIR: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-repair"));
+pub(super) const TXT_HELP_COMPACT: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-compact"));
+pub(super) const TXT_HELP_RESTORE: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-restore"));
 
 #[derive(Debug, PartialEq)]
 /// Return from parsing CLI configuration
@@ -663,7 +666,7 @@ pub enum CLIConfigParseReturn<T> {
     /// No changes
     Default,
     /// Output help menu
-    Help,
+    Help(String),
     /// Output version
     Version,
     /// We yielded a config
@@ -697,16 +700,29 @@ pub fn parse_cli_args<'a, T: ArgItem>(
                     CLIConfigParseReturn::YieldedConfig(opts)
                 }
             }
-            CliMultiCommand::Help(_) | CliMultiCommand::SubcommandHelp(_, _) => {
-                CLIConfigParseReturn::Help
-            }
+            CliMultiCommand::Help(_) => CLIConfigParseReturn::Help(TXT_HELP.to_string()),
+            CliMultiCommand::SubcommandHelp(_, subcommand) => match subcommand.name() {
+                "repair" => CLIConfigParseReturn::Help(TXT_HELP_REPAIR.to_owned()),
+                "compact" => CLIConfigParseReturn::Help(TXT_HELP_COMPACT.to_owned()),
+                "restore" => CLIConfigParseReturn::Help(TXT_HELP_RESTORE.to_owned()),
+                _ => {
+                    return Err(ConfigError::with_src(
+                        ConfigSource::Cli,
+                        ConfigErrorKind::ErrorString(format!(
+                            "unknown subcommand {}",
+                            subcommand.name()
+                        )),
+                    )
+                    .into())
+                }
+            },
             CliMultiCommand::Version(_) | CliMultiCommand::SubcommandVersion(_, _) => {
                 CLIConfigParseReturn::Version
             }
-            CliMultiCommand::Subcommand(base_settings, subcommand_settings) => {
-                base_settings.ensure_empty()?;
-                subcommand_settings.settings().ensure_empty()?;
-                match subcommand_settings.name() {
+            CliMultiCommand::Subcommand(command, subcommand) => {
+                command.ensure_empty()?;
+                subcommand.settings().ensure_empty()?;
+                match subcommand.name() {
                     "repair" => CLIConfigParseReturn::Repair,
                     "compact" => CLIConfigParseReturn::Compact,
                     _ => {
@@ -714,7 +730,7 @@ pub fn parse_cli_args<'a, T: ArgItem>(
                             ConfigSource::Cli,
                             ConfigErrorKind::ErrorString(format!(
                                 "unknown subcommand {}",
-                                subcommand_settings.name()
+                                subcommand.name()
                             )),
                         )
                         .into())
@@ -1094,7 +1110,7 @@ pub fn check_configuration() -> RuntimeResult<ConfigReturn> {
             None
         }
         CLIConfigParseReturn::Compact => return Ok(ConfigReturn::Compact),
-        CLIConfigParseReturn::Help => return Ok(ConfigReturn::HelpMessage(TXT_HELP.to_string())),
+        CLIConfigParseReturn::Help(txt) => return Ok(ConfigReturn::HelpMessage(txt)),
         CLIConfigParseReturn::Version => {
             // just output the version
             return Ok(ConfigReturn::HelpMessage(format!(

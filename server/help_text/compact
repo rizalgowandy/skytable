@@ -1,0 +1,22 @@
+███████ ██   ██ ██    ██ ████████  █████  ██████  ██      ███████
+██      ██  ██   ██  ██     ██    ██   ██ ██   ██ ██      ██
+███████ █████     ████      ██    ███████ ██████  ██      █████
+     ██ ██  ██     ██       ██    ██   ██ ██   ██ ██      ██
+███████ ██   ██    ██       ██    ██   ██ ██████  ███████ ███████
+
+Skytable {version} | https://github.com/skytable/skytable
+Copyright (c) Sayan N. <ohsayan@outlook.com>
+
+Skytable database server daemon (skyd): database file optimization utility
+
+Usage: skyd compact
+
+Examples:
+  skyd compact
+
+Notes:
+    - This command will force a compaction even if it is not required
+    - All data is backed up prior to compaction in the 'backups/' directory in a folder
+    named using the following template 'YYYYMMDD_HHMMSS-before-compaction'
+
+{further_assistance}

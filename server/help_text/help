@@ -5,9 +5,9 @@
 ███████ ██   ██    ██       ██    ██   ██ ██████  ███████ ███████
 
 Skytable {version} | https://github.com/skytable/skytable
-Skytable database server daemon (skyd)
-
 Copyright (c) Sayan N. <ohsayan@outlook.com>
+
+Skytable database server daemon (skyd)
 
 Usage: skyd [FLAGS] [OPTIONS]
        skyd [FLAGS] [OPTIONS] [COMMAND] [OPTIONS]
@@ -42,4 +42,4 @@ Notes:
   - When you run `repair`, your previous data is backed up in the `backups/` folder.
   Restore if needed.
 
-For further assistance, refer to the official documentation here: https://docs.skytable.org
+{further_assistance}

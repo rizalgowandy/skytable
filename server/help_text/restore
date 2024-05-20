@@ -1,0 +1,33 @@
+███████ ██   ██ ██    ██ ████████  █████  ██████  ██      ███████
+██      ██  ██   ██  ██     ██    ██   ██ ██   ██ ██      ██
+███████ █████     ████      ██    ███████ ██████  ██      █████
+     ██ ██  ██     ██       ██    ██   ██ ██   ██ ██      ██
+███████ ██   ██    ██       ██    ██   ██ ██████  ███████ ███████
+
+Skytable {version} | https://github.com/skytable/skytable
+Copyright (c) Sayan N. <ohsayan@outlook.com>
+
+Skytable database server daemon (skyd): data restore utility
+
+Usage: skyd restore [FLAGS] [OPTIONS]
+       skyd restore [FLAGS] [OPTIONS]
+
+Required options:
+  --path <path>                 (required) Path to the backup that is to be restored
+
+Flags:
+  --verify-integrity            Must verify integrity before backing up
+  --unsafe-allow-other-host     (unsafe) Enable restoring backup from a different host
+
+Examples:
+  skyd restore --verify-integrity --path /mnt/nfsbackups/mybackup-DDMMYYYY
+
+Notes:
+  - The backup pointed to must be a manifest based backup. Otherwise it cannot be
+  restored using this tool and needs manual intervention
+  - If you use the `--unsafe-allow-other-host` flag you must guarantee that it is ok
+  to restore a backup from a potentially different node
+  - `--verify-integrity` is almost always unnecessary as on startup `skyd` will always
+  verify the integrity of the on-disk data.
+
+{further_assistance}

@@ -28,11 +28,11 @@ use {
     std::{collections::HashMap, env, path::PathBuf},
 };
 
-pub fn format(body: &str, arguments: HashMap<&'static str, &'static str>, auto: bool) -> String {
+pub fn format(body: &str, arguments: &HashMap<&str, &str>, auto: bool) -> String {
     use regex::Regex;
     let pattern = r"\{[a-zA-Z_][a-zA-Z_0-9]*\}|\{\}";
     let re = Regex::new(pattern).unwrap();
-    re.replace_all(body, |caps: &regex::Captures| {
+    re.replace_all(body.as_ref(), |caps: &regex::Captures| {
         let capture: &str = &caps[0];
         let capture = &capture[1..capture.len() - 1];
         match capture {
@@ -43,6 +43,7 @@ pub fn format(body: &str, arguments: HashMap<&'static str, &'static str>, auto: 
             "default_tls_endpoint" if auto => "tls@127.0.0.1:2004".to_owned(),
             "password_env_var" if auto => variables::env_vars::SKYDB_PASSWORD.into(),
             "version" if auto => format!("v{}", variables::VERSION),
+            "further_assistance" if auto => "For further assistance, refer to the official documentation here: https://docs.skytable.org".to_owned(),
             arbitrary => arguments
                 .get(arbitrary)
                 .expect(&format!("could not find value for argument {}", arbitrary))
