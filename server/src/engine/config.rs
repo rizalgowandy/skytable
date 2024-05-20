@@ -1128,7 +1128,7 @@ pub fn check_configuration() -> RuntimeResult<ConfigReturn> {
             // just output the version
             return Ok(ConfigReturn::HelpMessage(format!(
                 "Skytable Database Server (skyd) v{}",
-                libsky::VERSION
+                libsky::variables::VERSION
             )));
         }
         CLIConfigParseReturn::Repair => return Ok(ConfigReturn::Repair),

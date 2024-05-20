@@ -29,7 +29,7 @@ use {
         build::{self, BuildMode},
         util, HarnessError, HarnessResult,
     },
-    libsky::VERSION,
+    libsky::variables::VERSION,
     std::{
         fs,
         io::{Read, Write},

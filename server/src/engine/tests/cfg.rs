@@ -150,7 +150,7 @@ fn parse_validate_cli_args_help_and_version() {
         ret4,
         ConfigReturn::HelpMessage(format!(
             "Skytable Database Server (skyd) v{}",
-            libsky::VERSION
+            libsky::variables::VERSION
         ))
     );
 }

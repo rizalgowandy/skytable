@@ -52,8 +52,8 @@ impl Default for DbConfig {
     fn default() -> Self {
         Self {
             client: DbTestClient::Skyhash,
-            port: libsky::test_utils::DEFAULT_PORT,
-            host: libsky::test_utils::DEFAULT_HOST.into(),
+            port: libsky::variables::test_utils::DEFAULT_PORT,
+            host: libsky::variables::test_utils::DEFAULT_HOST.into(),
         }
     }
 }
@@ -71,8 +71,8 @@ struct ClientConfig {
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
-            username: libsky::test_utils::DEFAULT_USER_NAME.into(),
-            password: libsky::test_utils::DEFAULT_USER_PASS.into(),
+            username: libsky::variables::test_utils::DEFAULT_USER_NAME.into(),
+            password: libsky::variables::test_utils::DEFAULT_USER_PASS.into(),
         }
     }
 }
@@ -139,7 +139,8 @@ fn parse_attrs(attrs: AttributeArgs) -> TestSetup {
                     assert!(username.is_some(), "username must be set");
                     strategy = TestStrategy::Relogin {
                         username: username.unwrap(),
-                        password: password.unwrap_or(libsky::test_utils::DEFAULT_USER_PASS.into()),
+                        password: password
+                            .unwrap_or(libsky::variables::test_utils::DEFAULT_USER_PASS.into()),
                     };
                 }
                 unknown => panic!("unknown nested attribute `{unknown}`"),

@@ -32,7 +32,7 @@ use {
     },
     libsky::{
         cli_utils::{CliCommand, CliCommandData, CommandLineArgs, SingleOption},
-        env_vars,
+        variables::env_vars,
     },
     std::{
         env, fs,
@@ -92,7 +92,7 @@ pub fn parse() -> CliResult<Task> {
         TaskInner::HelpMsg(msg) => return Ok(Task::HelpMessage(msg)),
         TaskInner::OpenShell(args) => args,
     };
-    let endpoint = match args.take_option("endpoint") {
+    let endpoint = match args.take_option("endpoint")? {
         None => EndpointConfig::Tcp("127.0.0.1".into(), 2003),
         Some(ep) => {
             // should be in the format protocol@host:port
@@ -114,7 +114,7 @@ pub fn parse() -> CliResult<Task> {
                     )))
                 }
             };
-            let tls_cert = args.take_option("tls-cert");
+            let tls_cert = args.take_option("tls-cert")?;
             match protocol {
                 "tcp" => {
                     // TODO(@ohsayan): warn!
@@ -142,14 +142,14 @@ pub fn parse() -> CliResult<Task> {
             }
         }
     };
-    let username = match args.take_option("user") {
+    let username = match args.take_option("user")? {
         Some(u) => u,
         None => {
             // default
             "root".into()
         }
     };
-    let password = match args.take_option("password") {
+    let password = match args.take_option("password")? {
         Some(p) => check_password(p.into(), "cli arguments")?,
         None => {
             // let us check the environment variable to see if anything was set
@@ -159,15 +159,15 @@ pub fn parse() -> CliResult<Task> {
             }
         }
     };
-    let eval = args.take_option("eval").or_else(|| args.take_option("e"));
-    if args.is_empty() {
-        let client = ClientConfig::new(endpoint, username.into(), password);
-        match eval {
-            Some(query) => Ok(Task::ExecOnce(client, query.into())),
-            None => Ok(Task::OpenShell(client)),
-        }
-    } else {
-        Err(CliError::ArgsErr(format!("found unknown arguments")))
+    let eval = match args.take_option("eval")? {
+        Some(v) => Some(v),
+        None => args.take_option("e")?,
+    };
+    args.ensure_empty()?;
+    let client = ClientConfig::new(endpoint, username.into(), password);
+    match eval {
+        Some(query) => Ok(Task::ExecOnce(client, query.into())),
+        None => Ok(Task::OpenShell(client)),
     }
 }
 

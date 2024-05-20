@@ -1,13 +1,12 @@
 /*
- * Created on Mon Jul 20 2020
- *
  * This file is a part of Skytable
+ *
  * Skytable (formerly known as TerrabaseDB or Skybase) is a free and open-source
  * NoSQL database written by Sayan Nandan ("the Author") with the
  * vision to provide flexibility in data modelling without compromising
  * on performance, queryability or scalability.
  *
- * Copyright (c) 2020, Sayan Nandan <ohsayan@outlook.com>
+ * Copyright (c) 2024, Sayan Nandan <nandansayan@outlook.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -24,19 +23,19 @@
  *
 */
 
-#![deny(unused_crate_dependencies)]
-#![deny(unused_imports)]
+/// The current version
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The URL
+pub const URL: &str = "https://github.com/skytable/skytable";
 
-//! The core library for Skytable
-//!
-//! This contains modules which are shared by both the `cli` and the `server` modules
+pub mod env_vars {
+    /// the environment variable to set the password to use with any tool (skysh,sky-bench,..)
+    pub const SKYDB_PASSWORD: &str = "SKYDB_PASSWORD";
+}
 
-pub mod build_scripts;
-pub mod cli_utils;
-pub mod utils;
-pub mod variables;
-
-/// Returns a formatted version message `{binary} vx.y.z`
-pub fn version_msg(binary: &str) -> String {
-    format!("{binary} v{}", variables::VERSION)
+pub mod test_utils {
+    pub const DEFAULT_USER_NAME: &str = "root";
+    pub const DEFAULT_USER_PASS: &str = "mypassword12345678";
+    pub const DEFAULT_HOST: &str = "127.0.0.1";
+    pub const DEFAULT_PORT: u16 = 2003;
 }

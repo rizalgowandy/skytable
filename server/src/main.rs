@@ -42,7 +42,7 @@ extern crate log;
 pub mod util;
 mod engine;
 
-use libsky::{URL, VERSION};
+use libsky::variables::{URL, VERSION};
 
 #[cfg(all(not(target_env = "msvc"), not(miri)))]
 #[global_allocator]

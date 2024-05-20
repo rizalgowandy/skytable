@@ -248,8 +248,19 @@ pub struct CliCommandData<Opt: CliArgsOptions> {
 }
 
 impl CliCommandData<SingleOption> {
-    pub fn take_option(&mut self, option: &str) -> Option<Box<str>> {
-        self.options.remove(option)
+    pub fn take_option(&mut self, option: &str) -> CliResult<Option<Box<str>>> {
+        match self.options.remove(option) {
+            Some(opt) => Ok(Some(opt)),
+            None => {
+                if self.flags.contains(option) {
+                    Err(CliArgsError::Other(format!(
+                        "expected option `--{option}` but instead found flag"
+                    )))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
     }
     pub fn parse_take_option<T: FromStr>(&mut self, option: &str) -> CliResult<Option<T>> {
         match self.options.remove(option) {
@@ -262,6 +273,17 @@ impl CliCommandData<SingleOption> {
     }
     pub fn is_empty(&self) -> bool {
         self.options.is_empty() && self.flags.is_empty()
+    }
+    pub fn ensure_empty(&self) -> CliResult<()> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(CliArgsError::Other(format!(
+                "found {} unknown flags and {} unknown options",
+                self.flags.len(),
+                self.options.len(),
+            )))
+        }
     }
 }
 
