@@ -60,8 +60,8 @@ fn parse_cli_args_simple() {
     let payload = "skyd --mode dev --endpoint tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
     let expected: ParsedRawArgs = into_dict! {
-        "--mode" => vec!["dev".into()],
-        "--endpoint" => vec!["tcp@localhost:2003".into()]
+        "mode" => vec!["dev".into()],
+        "endpoint" => vec!["tcp@localhost:2003".into()]
     };
     assert_eq!(cfg, expected);
 }
@@ -70,8 +70,8 @@ fn parse_cli_args_packed() {
     let payload = "skyd --mode=dev --endpoint=tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
     let expected: ParsedRawArgs = into_dict! {
-        "--mode" => vec!["dev".into()],
-        "--endpoint" => vec!["tcp@localhost:2003".into()]
+        "mode" => vec!["dev".into()],
+        "endpoint" => vec!["tcp@localhost:2003".into()]
     };
     assert_eq!(cfg, expected);
 }
@@ -80,8 +80,8 @@ fn parse_cli_args_multi() {
     let payload = "skyd --mode=dev --endpoint tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
     let expected: ParsedRawArgs = into_dict! {
-        "--mode" => vec!["dev".into()],
-        "--endpoint" => vec!["tcp@localhost:2003".into()]
+        "mode" => vec!["dev".into()],
+        "endpoint" => vec!["tcp@localhost:2003".into()]
     };
     assert_eq!(cfg, expected);
 }
@@ -203,6 +203,7 @@ fn parse_env_args_multi() {
     ];
     let expected_args = vars_to_args(&variables);
     config::set_env_src(variables.into());
+    config::set_cli_src(intovec!["skyd"]);
     let args = config::parse_env_args().unwrap().unwrap();
     assert_eq!(args, expected_args);
 }
@@ -226,6 +227,7 @@ fn parse_validate_env_args() {
                 format!("SKYDB_SERVICE_WINDOW=600"),
             ];
             config::set_env_src(variables.into());
+            config::set_cli_src(intovec!["skyd"]);
             let cfg = config::check_configuration().unwrap().into_config();
             assert_eq!(
                 cfg,

@@ -27,6 +27,7 @@
 use {
     crate::engine::{error::RuntimeResult, fractal},
     core::fmt,
+    libsky::cli_utils::{ArgItem, CliMultiCommand, CommandLineArgs, MultipleOptions, SingleOption},
     serde::Deserialize,
     std::{collections::HashMap, fs},
 };
@@ -314,6 +315,15 @@ pub struct ConfigError {
     kind: ConfigErrorKind,
 }
 
+impl From<libsky::cli_utils::CliArgsError> for ConfigError {
+    fn from(err: libsky::cli_utils::CliArgsError) -> Self {
+        Self::with_src(
+            ConfigSource::Cli,
+            ConfigErrorKind::ErrorString(err.to_string()),
+        )
+    }
+}
+
 impl ConfigError {
     /// Init config error
     fn _new(source: Option<ConfigSource>, kind: ConfigErrorKind) -> Self {
@@ -389,17 +399,23 @@ pub(super) trait ConfigurationSource {
     const SOURCE: ConfigSource;
     /// Formats an error `Invalid value for {key}`
     fn err_invalid_value_for(key: &str) -> ConfigError {
-        ConfigError::with_src(
-            Self::SOURCE,
-            ConfigErrorKind::ErrorString(format!("Invalid value for {key}")),
-        )
+        let msg;
+        if Self::SOURCE == ConfigSource::Cli {
+            msg = format!("invalid value for `--{key}`");
+        } else {
+            msg = format!("invalid value for {key}");
+        }
+        ConfigError::with_src(Self::SOURCE, ConfigErrorKind::ErrorString(msg))
     }
     /// Formats an error `Too many values for {key}`
     fn err_too_many_values_for(key: &str) -> ConfigError {
-        ConfigError::with_src(
-            Self::SOURCE,
-            ConfigErrorKind::ErrorString(format!("Too many values for {key}")),
-        )
+        let msg;
+        if Self::SOURCE == ConfigSource::Cli {
+            msg = format!("too many values for `--{key}`");
+        } else {
+            msg = format!("too many values for {key}");
+        }
+        ConfigError::with_src(Self::SOURCE, ConfigErrorKind::ErrorString(msg))
     }
     /// Formats the custom error directly
     fn custom_err(error: String) -> ConfigError {
@@ -409,7 +425,7 @@ pub(super) trait ConfigurationSource {
 
 /// Check if there are any duplicate values
 fn argck_duplicate_values<CS: ConfigurationSource>(
-    v: &[String],
+    v: &[impl AsRef<str>],
     key: &'static str,
 ) -> RuntimeResult<()> {
     if v.len() != 1 {
@@ -540,7 +556,7 @@ fn arg_decode_auth<CS: ConfigurationSource>(
         argck_duplicate_values::<CS>(&adrv, CS::KEY_AUTH_DRIVER)?;
     }
     argck_duplicate_values::<CS>(&root_key, CS::KEY_AUTH_DRIVER)?;
-    let auth_plugin = match auth_driver.as_ref().map(|v| v[0].as_str()) {
+    let auth_plugin = match auth_driver.as_ref().map(|v| v[0].as_ref()) {
         Some("pwd") | None => AuthDriver::Pwd,
         _ => return Err(CS::err_invalid_value_for(CS::KEY_AUTH_DRIVER).into()),
     };
@@ -668,90 +684,45 @@ impl<T> CLIConfigParseReturn<T> {
     }
 }
 
-/// Parse CLI args:
-/// - `--{option} {value}`
-/// - `--{option}={value}`
-pub fn parse_cli_args<'a, T: 'a + AsRef<str>>(
+pub fn parse_cli_args<'a, T: ArgItem>(
     src: impl Iterator<Item = T>,
 ) -> RuntimeResult<CLIConfigParseReturn<ParsedRawArgs>> {
-    let mut args_iter = src.into_iter().skip(1).peekable();
-    let mut cli_args: ParsedRawArgs = HashMap::new();
-    while let Some(arg) = args_iter.next() {
-        let arg = arg.as_ref();
-        let repair = arg == "repair";
-        let compact = arg == "compact";
-        if repair || compact {
-            if args_iter.peek().is_none() && cli_args.is_empty() {
-                if repair {
-                    return Ok(CLIConfigParseReturn::Repair);
-                } else if compact {
-                    return Ok(CLIConfigParseReturn::Compact);
+    Ok(
+        match libsky::cli_utils::CliMultiCommand::<MultipleOptions, SingleOption>::parse(src)? {
+            CliMultiCommand::Run(data) => {
+                let opts = data.into_options_only()?;
+                if opts.is_empty() {
+                    CLIConfigParseReturn::Default
+                } else {
+                    CLIConfigParseReturn::YieldedConfig(opts)
                 }
-            } else {
-                return Err(ConfigError::with_src(
-                    ConfigSource::Cli,
-                    ConfigErrorKind::ErrorString(
-                        "to use a subcommand, just run `skyd <subcommand>`".into(),
-                    ),
-                )
-                .into());
             }
-        }
-        if arg == "--help" || arg == "-h" {
-            return Ok(CLIConfigParseReturn::Help);
-        }
-        if arg == "--version" || arg == "-v" {
-            return Ok(CLIConfigParseReturn::Version);
-        }
-        if !arg.starts_with("--") {
-            return Err(ConfigError::with_src(
-                ConfigSource::Cli,
-                ConfigErrorKind::ErrorString(format!("unexpected argument `{arg}`")),
-            )
-            .into());
-        }
-        // x=1
-        let arg_key;
-        let arg_val;
-        let splits_arg_and_value = arg.split("=").collect::<Vec<&str>>();
-        if (splits_arg_and_value.len() == 2) & (arg.len() >= 5) {
-            // --{n}={x}; good
-            arg_key = splits_arg_and_value[0];
-            arg_val = splits_arg_and_value[1].to_string();
-        } else if splits_arg_and_value.len() != 1 {
-            // that's an invalid argument since the split is either `x=y` or `x` and we don't have any args
-            // with special characters
-            return Err(ConfigError::with_src(
-                ConfigSource::Cli,
-                ConfigErrorKind::ErrorString(format!("incorrectly formatted argument `{arg}`")),
-            )
-            .into());
-        } else {
-            let Some(value) = args_iter.next() else {
-                return Err(ConfigError::with_src(
-                    ConfigSource::Cli,
-                    ConfigErrorKind::ErrorString(format!("missing value for option `{arg}`")),
-                )
-                .into());
-            };
-            arg_key = arg;
-            arg_val = value.as_ref().to_string();
-        }
-        // merge duplicates into a vec
-        match cli_args.get_mut(arg_key) {
-            Some(cli) => {
-                cli.push(arg_val.to_string());
+            CliMultiCommand::Help(_) | CliMultiCommand::SubcommandHelp(_, _) => {
+                CLIConfigParseReturn::Help
             }
-            None => {
-                cli_args.insert(arg_key.to_string(), vec![arg_val.to_string()]);
+            CliMultiCommand::Version(_) | CliMultiCommand::SubcommandVersion(_, _) => {
+                CLIConfigParseReturn::Version
             }
-        }
-    }
-    if cli_args.is_empty() {
-        Ok(CLIConfigParseReturn::Default)
-    } else {
-        Ok(CLIConfigParseReturn::YieldedConfig(cli_args))
-    }
+            CliMultiCommand::Subcommand(base_settings, subcommand_settings) => {
+                base_settings.ensure_empty()?;
+                subcommand_settings.settings().ensure_empty()?;
+                match subcommand_settings.name() {
+                    "repair" => CLIConfigParseReturn::Repair,
+                    "compact" => CLIConfigParseReturn::Compact,
+                    _ => {
+                        return Err(ConfigError::with_src(
+                            ConfigSource::Cli,
+                            ConfigErrorKind::ErrorString(format!(
+                                "unknown subcommand {}",
+                                subcommand_settings.name()
+                            )),
+                        )
+                        .into())
+                    }
+                }
+            }
+        },
+    )
 }
 
 /*
@@ -848,7 +819,7 @@ fn apply_config_changes<CS: ConfigurationSource>(
     if !args.is_empty() {
         Err(ConfigError::with_src(
             CS::SOURCE,
-            ConfigErrorKind::ErrorString("found unknown arguments".into()),
+            ConfigErrorKind::ErrorString("found unknown arguments".to_string()),
         )
         .into())
     } else {
@@ -862,17 +833,17 @@ fn apply_config_changes<CS: ConfigurationSource>(
 
 pub struct CSCommandLine;
 impl CSCommandLine {
-    const ARG_CONFIG_FILE: &'static str = "--config";
+    const ARG_CONFIG_FILE: &'static str = "config";
 }
 impl ConfigurationSource for CSCommandLine {
-    const KEY_AUTH_DRIVER: &'static str = "--auth-plugin";
-    const KEY_AUTH_ROOT_PASSWORD: &'static str = "--auth-root-password";
-    const KEY_TLS_CERT: &'static str = "--tlscert";
-    const KEY_TLS_KEY: &'static str = "--tlskey";
-    const KEY_TLS_PKEY_PASS: &'static str = "--tls-passphrase";
-    const KEY_ENDPOINTS: &'static str = "--endpoint";
-    const KEY_RUN_MODE: &'static str = "--mode";
-    const KEY_SERVICE_WINDOW: &'static str = "--service-window";
+    const KEY_AUTH_DRIVER: &'static str = "auth-plugin";
+    const KEY_AUTH_ROOT_PASSWORD: &'static str = "auth-root-password";
+    const KEY_TLS_CERT: &'static str = "tlscert";
+    const KEY_TLS_KEY: &'static str = "tlskey";
+    const KEY_TLS_PKEY_PASS: &'static str = "tls-passphrase";
+    const KEY_ENDPOINTS: &'static str = "endpoint";
+    const KEY_RUN_MODE: &'static str = "mode";
+    const KEY_SERVICE_WINDOW: &'static str = "service-window";
     const SOURCE: ConfigSource = ConfigSource::Cli;
 }
 
@@ -980,11 +951,11 @@ fn validate_configuration<CS: ConfigurationSource>(
     err_if!(
         if config.system.reliability_system_window == 0 => ConfigError::with_src(
             CS::SOURCE,
-            ConfigErrorKind::ErrorString("invalid value for service window. must be nonzero".into()),
+            ConfigErrorKind::ErrorString("invalid value for service window. must be nonzero".to_string()),
         ).into(),
         if config.auth.root_key.len() < ROOT_PASSWORD_MIN_LEN => ConfigError::with_src(
             CS::SOURCE,
-            ConfigErrorKind::ErrorString("the root password must have at least 16 characters".into()),
+            ConfigErrorKind::ErrorString("the root password must have at least 16 characters".to_string()),
         ).into(),
     );
     Ok(config)
@@ -1123,7 +1094,7 @@ pub fn check_configuration() -> RuntimeResult<ConfigReturn> {
             None
         }
         CLIConfigParseReturn::Compact => return Ok(ConfigReturn::Compact),
-        CLIConfigParseReturn::Help => return Ok(ConfigReturn::HelpMessage(TXT_HELP.into())),
+        CLIConfigParseReturn::Help => return Ok(ConfigReturn::HelpMessage(TXT_HELP.to_string())),
         CLIConfigParseReturn::Version => {
             // just output the version
             return Ok(ConfigReturn::HelpMessage(format!(
@@ -1162,7 +1133,7 @@ pub fn check_configuration() -> RuntimeResult<ConfigReturn> {
                 None => {
                     // no env args or cli args; we're running on default
                     return Err(ConfigError::new(ConfigErrorKind::ErrorString(
-                        "no configuration provided".into(),
+                        "no configuration provided".to_string(),
                     ))
                     .into());
                 }

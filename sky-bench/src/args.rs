@@ -84,7 +84,7 @@ impl BenchConfig {
 fn load_env() -> BenchResult<TaskInner> {
     let action = CliCommand::<SingleOption>::from_cli()?;
     match action {
-        CliCommand::Help(_) => Ok(TaskInner::HelpMsg(TXT_HELP.into())),
+        CliCommand::Help(_) => Ok(TaskInner::HelpMsg(TXT_HELP.to_string())),
         CliCommand::Version(_) => Ok(TaskInner::HelpMsg(libsky::version_msg("sky-bench"))),
         CliCommand::Run(a) => Ok(TaskInner::CheckConfig(a)),
     }
@@ -111,25 +111,27 @@ pub fn parse_and_setup() -> BenchResult<Task> {
             let ep: Vec<&str> = ep.split("@").collect();
             if ep.len() != 2 {
                 return Err(BenchError::ArgsErr(
-                    "value for --endpoint must be in the form `[protocol]@[host]:[port]`".into(),
+                    "value for --endpoint must be in the form `[protocol]@[host]:[port]`"
+                        .to_string(),
                 ));
             }
             let protocol = ep[0];
             let host_port: Vec<&str> = ep[1].split(":").collect();
             if host_port.len() != 2 {
                 return Err(BenchError::ArgsErr(
-                    "value for --endpoint must be in the form `[protocol]@[host]:[port]`".into(),
+                    "value for --endpoint must be in the form `[protocol]@[host]:[port]`"
+                        .to_string(),
                 ));
             }
             let (host, port) = (host_port[0], host_port[1]);
             let Ok(port) = port.parse::<u16>() else {
                 return Err(BenchError::ArgsErr(
-                    "the value for port must be an integer in the range 0-65535".into(),
+                    "the value for port must be an integer in the range 0-65535".to_string(),
                 ));
             };
             if protocol != "tcp" {
                 return Err(BenchError::ArgsErr(
-                    "only TCP endpoints can be benchmarked at the moment".into(),
+                    "only TCP endpoints can be benchmarked at the moment".to_string(),
                 ));
             }
             (host.to_owned(), port)
@@ -137,14 +139,14 @@ pub fn parse_and_setup() -> BenchResult<Task> {
     };
     // password
     let password = match args.take_option("password")? {
-        Some(p) => p.into(),
+        Some(p) => p,
         None => {
             // check env?
             match env::var(env_vars::SKYDB_PASSWORD) {
                 Ok(p) => p,
                 Err(_) => {
                     return Err(BenchError::ArgsErr(
-                        "you must provide a value for `--password`".into(),
+                        "you must provide a value for `--password`".to_string(),
                     ))
                 }
             }
@@ -157,7 +159,7 @@ pub fn parse_and_setup() -> BenchResult<Task> {
             Ok(tc) if tc > 0 => tc,
             Err(_) | Ok(_) => {
                 return Err(BenchError::ArgsErr(
-                    "incorrect value for `--threads`. must be a nonzero value".into(),
+                    "incorrect value for `--threads`. must be a nonzero value".to_string(),
                 ))
             }
         },
@@ -213,7 +215,7 @@ pub fn parse_and_setup() -> BenchResult<Task> {
     args.ensure_empty()?;
     unsafe {
         setup::configure(
-            "root".into(),
+            "root".to_string(),
             password,
             host,
             port,

@@ -81,7 +81,7 @@ enum TaskInner {
 fn load_env() -> CliResult<TaskInner> {
     let action = CliCommand::<SingleOption>::from_cli()?;
     match action {
-        CliCommand::Help(_) => Ok(TaskInner::HelpMsg(TXT_HELP.into())),
+        CliCommand::Help(_) => Ok(TaskInner::HelpMsg(TXT_HELP.to_string())),
         CliCommand::Version(_) => Ok(TaskInner::HelpMsg(libsky::version_msg("skysh"))),
         CliCommand::Run(a) => Ok(TaskInner::OpenShell(a)),
     }
@@ -93,17 +93,21 @@ pub fn parse() -> CliResult<Task> {
         TaskInner::OpenShell(args) => args,
     };
     let endpoint = match args.take_option("endpoint")? {
-        None => EndpointConfig::Tcp("127.0.0.1".into(), 2003),
+        None => EndpointConfig::Tcp("127.0.0.1".to_string(), 2003),
         Some(ep) => {
             // should be in the format protocol@host:port
             let proto_host_port: Vec<&str> = ep.split("@").collect();
             if proto_host_port.len() != 2 {
-                return Err(CliError::ArgsErr("invalid value for --endpoint".into()));
+                return Err(CliError::ArgsErr(
+                    "invalid value for --endpoint".to_string(),
+                ));
             }
             let (protocol, host_port) = (proto_host_port[0], proto_host_port[1]);
             let host_port: Vec<&str> = host_port.split(":").collect();
             if host_port.len() != 2 {
-                return Err(CliError::ArgsErr("invalid value for --endpoint".into()));
+                return Err(CliError::ArgsErr(
+                    "invalid value for --endpoint".to_string(),
+                ));
             }
             let (host, port) = (host_port[0], host_port[1]);
             let port = match port.parse::<u16>() {
@@ -118,14 +122,14 @@ pub fn parse() -> CliResult<Task> {
             match protocol {
                 "tcp" => {
                     // TODO(@ohsayan): warn!
-                    EndpointConfig::Tcp(host.into(), port)
+                    EndpointConfig::Tcp(host.to_string(), port)
                 }
                 "tls" => {
                     // we need a TLS cert
                     match tls_cert {
                         Some(path) => {
-                            let cert = fs::read_to_string(path.as_ref())?;
-                            EndpointConfig::Tls(host.into(), port, cert)
+                            let cert = fs::read_to_string(path)?;
+                            EndpointConfig::Tls(host.to_string(), port, cert)
                         }
                         None => {
                             return Err(CliError::ArgsErr(format!(
@@ -146,11 +150,11 @@ pub fn parse() -> CliResult<Task> {
         Some(u) => u,
         None => {
             // default
-            "root".into()
+            "root".to_string()
         }
     };
     let password = match args.take_option("password")? {
-        Some(p) => check_password(p.into(), "cli arguments")?,
+        Some(p) => check_password(p, "cli arguments")?,
         None => {
             // let us check the environment variable to see if anything was set
             match env::var(env_vars::SKYDB_PASSWORD) {
@@ -164,9 +168,9 @@ pub fn parse() -> CliResult<Task> {
         None => args.take_option("e")?,
     };
     args.ensure_empty()?;
-    let client = ClientConfig::new(endpoint, username.into(), password);
+    let client = ClientConfig::new(endpoint, username, password);
     match eval {
-        Some(query) => Ok(Task::ExecOnce(client, query.into())),
+        Some(query) => Ok(Task::ExecOnce(client, query)),
         None => Ok(Task::OpenShell(client)),
     }
 }

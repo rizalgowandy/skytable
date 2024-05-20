@@ -339,3 +339,9 @@ impl IntoError for TransactionError {
         self.into()
     }
 }
+
+impl From<libsky::cli_utils::CliArgsError> for Error {
+    fn from(e: libsky::cli_utils::CliArgsError) -> Self {
+        Self::with_origin(ErrorKind::Config(ConfigError::from(e)), Subsystem::Init)
+    }
+}

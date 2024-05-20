@@ -34,8 +34,8 @@ use std::{
 */
 
 pub type CliResult<T> = Result<T, CliArgsError>;
-pub type SingleOption = HashMap<Box<str>, Box<str>>;
-pub type MultipleOptions = HashMap<Box<str>, Vec<Box<str>>>;
+pub type SingleOption = HashMap<String, String>;
+pub type MultipleOptions = HashMap<String, Vec<String>>;
 
 #[derive(Debug)]
 pub enum CliArgsError {
@@ -65,15 +65,15 @@ impl Error for CliArgsError {}
 pub trait CliArgsDecode: Sized {
     type Data;
     fn initialize<const SWITCH: bool>(iter: &mut impl Iterator<Item = impl ArgItem>) -> Self::Data;
-    fn push_flag(data: &mut Self::Data, flag: Box<str>) -> CliResult<()>;
+    fn push_flag(data: &mut Self::Data, flag: String) -> CliResult<()>;
     fn push_option(
         data: &mut Self::Data,
-        option_name: Box<str>,
-        option_value: Box<str>,
+        option_name: String,
+        option_value: String,
     ) -> CliResult<()>;
     fn yield_subcommand(
         data: Self::Data,
-        subcommand: Box<str>,
+        subcommand: String,
         args: impl IntoIterator<Item = impl ArgItem>,
     ) -> CliResult<Self>;
     fn yield_command(data: Self::Data) -> CliResult<Self>;
@@ -98,15 +98,15 @@ impl<T: Sized + CliArgsDecode> CommandLineArgs for T {}
 
 pub trait ArgItem {
     fn as_str(&self) -> &str;
-    fn boxed_str(self) -> Box<str>;
+    fn boxed_str(self) -> String;
 }
 
 impl<'a> ArgItem for &'a str {
     fn as_str(&self) -> &str {
         self
     }
-    fn boxed_str(self) -> Box<str> {
-        self.to_owned().into_boxed_str()
+    fn boxed_str(self) -> String {
+        self.to_owned()
     }
 }
 
@@ -114,17 +114,21 @@ impl ArgItem for String {
     fn as_str(&self) -> &str {
         self
     }
-    fn boxed_str(self) -> Box<str> {
-        self.into_boxed_str()
+    fn boxed_str(self) -> String {
+        self
     }
 }
 
 pub trait CliArgsOptions: Default {
-    fn push_option(&mut self, option: Box<str>, value: Box<str>) -> CliResult<()>;
+    fn is_unset(&self) -> bool;
+    fn push_option(&mut self, option: String, value: String) -> CliResult<()>;
 }
 
 impl CliArgsOptions for SingleOption {
-    fn push_option(&mut self, option: Box<str>, value: Box<str>) -> CliResult<()> {
+    fn is_unset(&self) -> bool {
+        self.is_empty()
+    }
+    fn push_option(&mut self, option: String, value: String) -> CliResult<()> {
         match self.entry(option) {
             Entry::Vacant(ve) => {
                 ve.insert(value);
@@ -136,7 +140,10 @@ impl CliArgsOptions for SingleOption {
 }
 
 impl CliArgsOptions for MultipleOptions {
-    fn push_option(&mut self, option: Box<str>, value: Box<str>) -> CliResult<()> {
+    fn is_unset(&self) -> bool {
+        self.is_empty()
+    }
+    fn push_option(&mut self, option: String, value: String) -> CliResult<()> {
         match self.entry(option) {
             Entry::Occupied(mut oe) => oe.get_mut().push(value),
             Entry::Vacant(ve) => {
@@ -158,7 +165,7 @@ fn decode_args<C: CliArgsDecode, const HAS_BINARY_NAME: bool>(
     if HAS_BINARY_NAME {
         // must not be empty
         if args.peek().is_none() {
-            return Err(CliArgsError::ArgFmtError(
+            return Err(CliArgsError::Other(
                 "expected arguments but found none".to_owned(),
             ));
         }
@@ -244,11 +251,35 @@ pub enum CliCommand<Opt: CliArgsOptions> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct CliCommandData<Opt: CliArgsOptions> {
     options: Opt,
-    flags: HashSet<Box<str>>,
+    flags: HashSet<String>,
+}
+
+impl<Opt: CliArgsOptions> CliCommandData<Opt> {
+    pub fn into_options_only(self) -> CliResult<Opt> {
+        if self.flags.is_empty() {
+            Ok(self.options)
+        } else {
+            Err(CliArgsError::Other(format!(
+                "no flags were expected in this context"
+            )))
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.options.is_unset() && self.flags.is_empty()
+    }
+    pub fn ensure_empty(&self) -> CliResult<()> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(CliArgsError::Other(format!(
+                "found unknown flags and options",
+            )))
+        }
+    }
 }
 
 impl CliCommandData<SingleOption> {
-    pub fn take_option(&mut self, option: &str) -> CliResult<Option<Box<str>>> {
+    pub fn take_option(&mut self, option: &str) -> CliResult<Option<String>> {
         match self.options.remove(option) {
             Some(opt) => Ok(Some(opt)),
             None => {
@@ -271,20 +302,6 @@ impl CliCommandData<SingleOption> {
             None => Ok(None),
         }
     }
-    pub fn is_empty(&self) -> bool {
-        self.options.is_empty() && self.flags.is_empty()
-    }
-    pub fn ensure_empty(&self) -> CliResult<()> {
-        if self.is_empty() {
-            Ok(())
-        } else {
-            Err(CliArgsError::Other(format!(
-                "found {} unknown flags and {} unknown options",
-                self.flags.len(),
-                self.options.len(),
-            )))
-        }
-    }
 }
 
 impl<Opt: CliArgsOptions> CliArgsDecode for CliCommand<Opt> {
@@ -300,7 +317,7 @@ impl<Opt: CliArgsOptions> CliArgsDecode for CliCommand<Opt> {
             flags: Default::default(),
         }
     }
-    fn push_flag(data: &mut Self::Data, flag: Box<str>) -> CliResult<()> {
+    fn push_flag(data: &mut Self::Data, flag: String) -> CliResult<()> {
         if !data.flags.insert(flag.to_owned()) {
             return Err(CliArgsError::DuplicateFlag(flag.to_string()));
         }
@@ -308,14 +325,14 @@ impl<Opt: CliArgsOptions> CliArgsDecode for CliCommand<Opt> {
     }
     fn push_option(
         data: &mut Self::Data,
-        option_name: Box<str>,
-        option_value: Box<str>,
+        option_name: String,
+        option_value: String,
     ) -> CliResult<()> {
         data.options.push_option(option_name, option_value)
     }
     fn yield_subcommand(
         _: Self::Data,
-        _: Box<str>,
+        _: String,
         _: impl IntoIterator<Item = impl ArgItem>,
     ) -> CliResult<Self> {
         return Err(CliArgsError::SubcommandDisallowed);
@@ -347,12 +364,12 @@ pub enum CliMultiCommand<OptR: CliArgsOptions, OptS: CliArgsOptions> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Subcommand<Opt: CliArgsOptions> {
-    name: Box<str>,
+    name: String,
     settings: CliCommandData<Opt>,
 }
 
 impl<Opt: CliArgsOptions> Subcommand<Opt> {
-    fn new(name: Box<str>, settings: CliCommandData<Opt>) -> Self {
+    fn new(name: String, settings: CliCommandData<Opt>) -> Self {
         Self { name, settings }
     }
     pub fn name(&self) -> &str {
@@ -371,13 +388,13 @@ impl<OptR: CliArgsOptions, OptS: CliArgsOptions> CliArgsDecode for CliMultiComma
     fn initialize<const SWITCH: bool>(iter: &mut impl Iterator<Item = impl ArgItem>) -> Self::Data {
         <CliCommand<OptR>>::initialize::<SWITCH>(iter)
     }
-    fn push_flag(data: &mut Self::Data, flag: Box<str>) -> CliResult<()> {
+    fn push_flag(data: &mut Self::Data, flag: String) -> CliResult<()> {
         <CliCommand<OptR>>::push_flag(data, flag)
     }
     fn push_option(
         data: &mut Self::Data,
-        option_name: Box<str>,
-        option_value: Box<str>,
+        option_name: String,
+        option_value: String,
     ) -> CliResult<()> {
         <CliCommand<OptR>>::push_option(data, option_name, option_value)
     }
@@ -389,7 +406,7 @@ impl<OptR: CliArgsOptions, OptS: CliArgsOptions> CliArgsDecode for CliMultiComma
     }
     fn yield_subcommand(
         data: Self::Data,
-        subcommand: Box<str>,
+        subcommand: String,
         args: impl IntoIterator<Item = impl ArgItem>,
     ) -> CliResult<Self> {
         let subcommand_args = decode_args::<CliCommand<OptS>, false>(args)?;
@@ -436,11 +453,11 @@ fn command() {
                 ("auth-plugin", "pwd")
             ]
             .into_iter()
-            .map(|(x, y)| (x.to_owned().into_boxed_str(), y.to_owned().into_boxed_str()))
+            .map(|(x, y)| (x.to_owned(), y.to_owned()))
             .collect(),
             flags: ["tls-only", "verify-cluster-seed-membership"]
                 .into_iter()
-                .map(|f| f.to_owned().into_boxed_str())
+                .map(|f| f.to_owned())
                 .collect()
         })
     )
@@ -468,16 +485,11 @@ fn command_multi() {
                 ("endpoint", &["tcp@localhost:2003", "tls@localhost:2004"])
             ]
             .into_iter()
-            .map(|(x, y)| (
-                x.to_owned().into_boxed_str(),
-                y.into_iter()
-                    .map(|x| x.to_string().into_boxed_str())
-                    .collect()
-            ))
+            .map(|(x, y)| (x.to_owned(), y.into_iter().map(|x| x.to_string()).collect()))
             .collect(),
             flags: ["tls-only", "verify-cluster-seed-membership"]
                 .into_iter()
-                .map(|f| f.to_owned().into_boxed_str())
+                .map(|f| f.to_owned())
                 .collect()
         })
     )
@@ -498,23 +510,23 @@ fn subcommand() {
     let base_settings = CliCommandData {
         options: [("compat-driver", "v1")]
             .into_iter()
-            .map(|(x, y)| (x.to_owned().into_boxed_str(), y.to_owned().into_boxed_str()))
+            .map(|(x, y)| (x.to_owned(), y.to_owned()))
             .collect(),
         flags: ["verify-cluster-membership"]
             .into_iter()
-            .map(|f| f.to_owned().into_boxed_str())
+            .map(|f| f.to_owned())
             .collect(),
     };
     let expected_subcommand = Subcommand::new(
-        "restore".to_owned().into_boxed_str(),
+        "restore".to_owned(),
         CliCommandData {
             options: [("driver", "v2"), ("name", "myoldbackup")]
                 .into_iter()
-                .map(|(x, y)| (x.to_owned().into_boxed_str(), y.to_owned().into_boxed_str()))
+                .map(|(x, y)| (x.to_owned(), y.to_owned()))
                 .collect(),
             flags: ["allow-different-host"]
                 .into_iter()
-                .map(|f| f.to_owned().into_boxed_str())
+                .map(|f| f.to_owned())
                 .collect(),
         },
     );
