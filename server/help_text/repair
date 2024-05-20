@@ -9,6 +9,10 @@ Copyright (c) Sayan N. <ohsayan@outlook.com>
 
 Skytable database server daemon (skyd): database repair utility
 
+Details:
+  The `repair` subcommand checks the integrity of all database files and attempts to repair
+  any files that are found to have issues such as data corruption or inconsistencies.
+
 Usage: skyd repair
 
 Examples:

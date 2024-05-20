@@ -658,6 +658,7 @@ fn arg_decode_rs_window<CS: ConfigurationSource>(
 pub(super) const TXT_HELP: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-help"));
 pub(super) const TXT_HELP_REPAIR: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-repair"));
 pub(super) const TXT_HELP_COMPACT: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-compact"));
+pub(super) const TXT_HELP_BACKUP: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-backup"));
 pub(super) const TXT_HELP_RESTORE: &str = include_str!(concat!(env!("OUT_DIR"), "/skyd-restore"));
 
 #[derive(Debug, PartialEq)]
@@ -704,6 +705,7 @@ pub fn parse_cli_args<'a, T: ArgItem>(
             CliMultiCommand::SubcommandHelp(_, subcommand) => match subcommand.name() {
                 "repair" => CLIConfigParseReturn::Help(TXT_HELP_REPAIR.to_owned()),
                 "compact" => CLIConfigParseReturn::Help(TXT_HELP_COMPACT.to_owned()),
+                "backup" => CLIConfigParseReturn::Help(TXT_HELP_BACKUP.to_owned()),
                 "restore" => CLIConfigParseReturn::Help(TXT_HELP_RESTORE.to_owned()),
                 _ => {
                     return Err(ConfigError::with_src(

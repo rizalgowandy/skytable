@@ -7,24 +7,24 @@
 Skytable {version} | https://github.com/skytable/skytable
 Copyright (c) Sayan N. <ohsayan@outlook.com>
 
-Skytable database server daemon (skyd): data restore utility
+Skytable database server daemon (skyd): data backup utility
 
 Details:
-  The `restore` subcommand is used to restore data from an existing manifest-based
-  backup located at the given path.
+  The `backup` subcommand is used to back up database data into a reliable format
+  for easily restoring database data without manual intervention.
 
-Usage: skyd restore [FLAGS] [OPTIONS]
-       skyd restore [FLAGS] [OPTIONS]
+Usage: skyd backup [FLAGS] [OPTIONS]
 
 Options:
-  --path <path>                 (required) Path to the backup that is to be restored
+  --path <path>                 (required) Path to the backup that is to be created
 
 Flags:
-  --verify-integrity            Must verify integrity before restoring data
-  --unsafe-allow-other-host     (unsafe) Enable restoring backup from a different host
+  --verify-integrity            Must verify integrity before backing up
+  --unsafe-allow-dirty          (unsafe) Copy files as-is, even if the database is running
+                                and in a (potentially) dirty state
 
 Examples:
-  skyd restore --verify-integrity --path /mnt/nfsbackups/mybackup-DDMMYYYY
+  skyd backup --verify-integrity --path /mnt/nfsbackups/mybackup-DDMMYYYY
 
 Notes:
   - The backup pointed to must be a manifest based backup. Otherwise it cannot be

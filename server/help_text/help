@@ -9,12 +9,18 @@ Copyright (c) Sayan N. <ohsayan@outlook.com>
 
 Skytable database server daemon (skyd)
 
+Details:
+  The Skytable database server daemon starts the database server and listens for database
+  requests at the given endpoints based on the provided configuration.
+
 Usage: skyd [FLAGS] [OPTIONS]
        skyd [FLAGS] [OPTIONS] [COMMAND] [OPTIONS]
 
 Commands:
   repair                        Check and repair any detected database storage errors
   compact                       Force optimize all database files
+  backup                        Back up database data
+  restore                       Restore data from an existing backup
 
 Flags:
   -h, --help                    Display this help menu and exit.

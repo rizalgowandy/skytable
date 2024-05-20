@@ -9,6 +9,11 @@ Copyright (c) Sayan N. <ohsayan@outlook.com>
 
 Skytable database server daemon (skyd): database file optimization utility
 
+Details:
+  The `compact` subcommand optimizes the database files by removing any stale or deleted
+  data and/or applying other operations. This can help improve database performance,
+  efficiency and reduce disk usage.
+
 Usage: skyd compact
 
 Examples:
