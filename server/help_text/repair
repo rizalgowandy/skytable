@@ -15,6 +15,10 @@ Details:
 
 Usage: skyd repair
 
+Informational flags:
+  -h, --help                    Display this help menu and exit.
+  -v, --version                 Display the version number and exit.
+
 Examples:
   skyd repair
 

@@ -14,24 +14,33 @@ Details:
   backup located at the given path.
 
 Usage: skyd restore [FLAGS] [OPTIONS]
-       skyd restore [FLAGS] [OPTIONS]
+
+Required options:
+  --from <path>                 Path to the backup that is to be restored
 
 Options:
-  --path <path>                 (required) Path to the backup that is to be restored
+  --to <path>                   Set the working directory, if different from the
+                                current directory
 
 Flags:
-  --verify-integrity            Must verify integrity before restoring data
-  --unsafe-allow-other-host     (unsafe) Enable restoring backup from a different host
+  --allow-incompatible          (unsafe) Even if the destination data uses an
+                                unsupported driver version continue to restore
+  --allow-different-host        (unsafe) Even if this backup is from a different
+                                host, allow it to be restored
+  --allow-invalid-date          (unsafe) Ignore an invalid date in the backup
+  --delete-on-restore           Once the data is restored, delete the backup
+
+Informational flags:
+  -h, --help                    Display this help menu and exit.
+  -v, --version                 Display the version number and exit.
 
 Examples:
-  skyd restore --verify-integrity --path /mnt/nfsbackups/mybackup-DDMMYYYY
+  skyd restore --from /mnt/nfsbackups/mybackup-DDMMYYYY --to /var/lib/skytable
 
 Notes:
   - The backup pointed to must be a manifest based backup. Otherwise it cannot be
   restored using this tool and needs manual intervention
-  - If you use the `--unsafe-allow-other-host` flag you must guarantee that it is ok
+  - If you use the `--allow-other-host` flag you must guarantee that it is ok
   to restore a backup from a potentially different node
-  - `--verify-integrity` is almost always unnecessary as on startup `skyd` will always
-  verify the integrity of the on-disk data.
 
 {further_assistance}

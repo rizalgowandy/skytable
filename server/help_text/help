@@ -22,7 +22,7 @@ Commands:
   backup                        Back up database data
   restore                       Restore data from an existing backup
 
-Flags:
+Informational flags:
   -h, --help                    Display this help menu and exit.
   -v, --version                 Display the version number and exit.
 
@@ -47,5 +47,6 @@ Notes:
   - To use TLS, you must provide both `--tlscert` and `--tlskey`
   - When you run `repair`, your previous data is backed up in the `backups/` folder.
   Restore if needed.
+  - For help with commands, consider running `skyd <command name> --help`
 
 {further_assistance}
