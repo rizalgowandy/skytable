@@ -270,3 +270,10 @@ macro_rules! decl {
         let $array: [$type; $array::SIZE] = [$($expr),*];)*
     }
 }
+
+macro_rules! pathbuf {
+    ($($component:expr),+ $(,)?) => {{
+        let mut path = ::std::path::PathBuf::new();
+        $(path.push($component);)*path
+    }};
+}

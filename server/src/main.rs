@@ -72,8 +72,16 @@ fn main() {
             ConfigReturn::HelpMessage(msg) => {
                 exit!(eprintln!("{msg}"), 0x00)
             }
-            ConfigReturn::Repair => return self::exec_subcommand("repair", engine::repair),
-            ConfigReturn::Compact => return self::exec_subcommand("compact", engine::compact),
+            ConfigReturn::Repair => return self::exec_subcommand("repair", engine::repair, false),
+            ConfigReturn::Compact => {
+                return self::exec_subcommand("compact", engine::compact, false)
+            }
+            ConfigReturn::Backup(bkp) => {
+                return self::exec_subcommand("backup", move || engine::backup(bkp), true)
+            }
+            ConfigReturn::Restore(restore) => {
+                return self::exec_subcommand("restore", move || engine::restore(restore), true)
+            }
         },
         Err(e) => exit_fatal!(error!("{e}")),
     };
@@ -142,11 +150,32 @@ fn entrypoint(config: engine::config::Configuration) {
     self::exit(global, pid_file, result);
 }
 
-fn exec_subcommand(task: &str, f: fn() -> engine::RuntimeResult<()>) {
-    let (pid_file, rt) = match init() {
-        Ok(init) => init,
-        Err(e) => exit_fatal!(error!("failed to start {task} task: {e}")),
-    };
+fn exec_subcommand(
+    task: &str,
+    f: impl FnOnce() -> engine::RuntimeResult<()> + Send + Sync + 'static,
+    custom_pid_handling: bool,
+) {
+    let rt;
+    let pid_file;
+    if custom_pid_handling {
+        engine::set_context_init("initializing runtime");
+        rt = match tokio::runtime::Builder::new_multi_thread()
+            .thread_name("server")
+            .enable_all()
+            .build()
+        {
+            Ok(rt_) => rt_,
+            Err(e) => exit_fatal!(error!("failed to start {task} task due to rt failure: {e}")),
+        };
+        pid_file = None;
+    } else {
+        let (pid_file_, rt_) = match init() {
+            Ok(init) => init,
+            Err(e) => exit_fatal!(error!("failed to start {task} task: {e}")),
+        };
+        pid_file = Some(pid_file_);
+        rt = rt_;
+    }
     let result = rt.block_on(async move {
         engine::set_context_init("binding system signals");
         let signal = util::os::TerminationSignal::init()?;
@@ -154,5 +183,5 @@ fn exec_subcommand(task: &str, f: fn() -> engine::RuntimeResult<()>) {
         drop(signal);
         result
     });
-    self::exit(None, Some(pid_file), result)
+    self::exit(None, pid_file, result)
 }

@@ -32,28 +32,33 @@ use {
         },
         raw::journal::{BatchAdapter, EventLogAdapter, JournalSettings, RepairResult},
     },
-    super::{common::interface::fs::FileSystem, v1, SELoaded},
     crate::{
         engine::{
-            config::Configuration,
+            config::{BackupSettings, BackupType, Configuration, RestoreSettings},
             core::{
                 system_db::{SystemDatabase, VerifyUser},
                 EntityIDRef, GNSData, GlobalNS,
             },
             fractal::{context, FractalGNSDriver},
             storage::{
-                common::paths_v1,
+                common::{interface::fs::FileSystem, paths_v1},
+                v1,
                 v2::{
                     impls::{gns_log::GNSAdapter, mdl_journal::ModelAdapter},
                     raw::journal::{self, JournalRepairMode},
                 },
+                SELoaded,
             },
             txn::gns::sysctl::{AlterUserTxn, CreateUserTxn},
             RuntimeResult,
         },
-        util,
+        util::{self, os::FileLocks},
     },
-    impls::{gns_log::GNSDriver, mdl_journal::ModelDriver},
+    impls::{
+        backup_manifest::{BackupContext, BackupManifest},
+        gns_log::GNSDriver,
+        mdl_journal::ModelDriver,
+    },
 };
 
 pub(super) mod impls;
@@ -121,7 +126,7 @@ pub fn initialize_new(config: &Configuration) -> RuntimeResult<SELoaded> {
     restore
 */
 
-pub fn restore(cfg: &Configuration) -> RuntimeResult<SELoaded> {
+pub fn load(cfg: &Configuration) -> RuntimeResult<SELoaded> {
     let gns = GNSData::empty();
     context::set_dmsg("loading gns");
     let mut did_backup = false;
@@ -263,10 +268,20 @@ pub fn repair() -> RuntimeResult<()> {
     Ok(())
 }
 
-fn full_backup(reason: &str) -> RuntimeResult<()> {
-    let backup_dir = format!("backups/{}-{reason}", util::time_now_string());
-    context::set_dmsg("creating backup directory");
-    FileSystem::create_dir_all(&backup_dir)?;
+fn full_backup(name: &str) -> RuntimeResult<()> {
+    _full_backup(name, true)
+}
+
+fn _full_backup(name: &str, standard_backup: bool) -> RuntimeResult<()> {
+    let backup_dir = if standard_backup {
+        format!("backups/{}-{name}", util::time_now_string())
+    } else {
+        format!("{name}")
+    };
+    if standard_backup {
+        context::set_dmsg("creating backup directory");
+        FileSystem::create_dir_all(&backup_dir)?;
+    }
     context::set_dmsg("backing up GNS");
     FileSystem::copy(GNS_PATH, &format!("{backup_dir}/{GNS_PATH}"))?;
     context::set_dmsg("backing up data directory");
@@ -325,5 +340,55 @@ pub fn compact() -> RuntimeResult<()> {
             |_| Ok(()),
         )?;
     }
+    Ok(())
+}
+
+/*
+    backup
+*/
+
+pub fn backup(settings: BackupSettings) -> RuntimeResult<()> {
+    match settings.kind {
+        BackupType::Direct => {}
+    }
+    // first lock directory
+    let mut locks = FileLocks::new();
+    if settings.allow_dirty {
+        warn!("potentially unsafe backup operation has been started (dirty read allowed)");
+    } else {
+        context::set_dmsg("locking data directory for backup");
+        match settings.from.as_ref() {
+            Some(from) => locks.lock(pathbuf!(from, crate::SKY_PID_FILE)),
+            None => locks.lock(crate::SKY_PID_FILE),
+        }?
+    }
+    // create backup directory
+    context::set_dmsg("creating backup directory");
+    FileSystem::create_dir_all(&settings.to)?;
+    // lock backup directory
+    context::set_dmsg("locking backup directory");
+    locks.lock(pathbuf!(&settings.to, crate::SKY_PID_FILE))?;
+    // create manifest
+    context::set_dmsg("creating backup manifest");
+    let manifest_path = pathbuf!(&settings.to, "backup.manifest");
+    BackupManifest::create(
+        manifest_path.to_str().unwrap(),
+        BackupContext::Manual,
+        settings.description,
+    )?;
+    // recursively back files up
+    context::set_dmsg("copying files to backup directory");
+    _full_backup(&settings.to, false)?;
+    // release locks
+    context::set_dmsg("releasing directory locks");
+    locks.release()?;
+    Ok(())
+}
+
+/*
+    restore
+*/
+
+pub fn restore(_: RestoreSettings) -> RuntimeResult<()> {
     Ok(())
 }

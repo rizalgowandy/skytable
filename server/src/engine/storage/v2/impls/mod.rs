@@ -24,6 +24,7 @@
  *
 */
 
+pub mod backup_manifest;
 pub mod gns_log;
 pub mod mdl_journal;
 #[cfg(test)]

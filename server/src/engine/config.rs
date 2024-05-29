@@ -194,6 +194,68 @@ pub enum ConfigMode {
     Prod,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum BackupType {
+    Direct,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct BackupSettings {
+    pub to: String,
+    pub from: Option<String>,
+    pub kind: BackupType,
+    pub description: Option<String>,
+    pub allow_dirty: bool,
+}
+
+impl BackupSettings {
+    fn new(
+        to: String,
+        from: Option<String>,
+        kind: BackupType,
+        description: Option<String>,
+        allow_dirty: bool,
+    ) -> Self {
+        Self {
+            to,
+            from,
+            kind,
+            description,
+            allow_dirty,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct RestoreSettings {
+    pub from: String,
+    pub to: Option<String>,
+    pub flag_allow_incompatible: bool,
+    pub flag_allow_different_host: bool,
+    pub flag_allow_invalid_date: bool,
+    pub flag_delete_on_restore_completion: bool,
+}
+
+impl RestoreSettings {
+    fn new(
+        from: String,
+        to: Option<String>,
+        flag_allow_incompatible: bool,
+        flag_allow_different_host: bool,
+        flag_allow_invalid_date: bool,
+        flag_delete_on_restore_completion: bool,
+    ) -> Self {
+        Self {
+            from,
+            to,
+            flag_allow_incompatible,
+            flag_allow_different_host,
+            flag_allow_invalid_date,
+            flag_delete_on_restore_completion,
+        }
+    }
+}
+
 /*
     config system
 */
@@ -676,6 +738,10 @@ pub enum CLIConfigParseReturn<T> {
     Repair,
     /// a compact operation was requested
     Compact,
+    /// a backup operation was requested
+    Backup(BackupSettings),
+    /// a restore operation was requested
+    Restore(RestoreSettings),
 }
 
 impl<T> CLIConfigParseReturn<T> {
@@ -723,10 +789,67 @@ pub fn parse_cli_args<'a, T: ArgItem>(
             }
             CliMultiCommand::Subcommand(command, subcommand) => {
                 command.ensure_empty()?;
-                subcommand.settings().ensure_empty()?;
                 match subcommand.name() {
-                    "repair" => CLIConfigParseReturn::Repair,
-                    "compact" => CLIConfigParseReturn::Compact,
+                    "repair" => {
+                        subcommand.settings().ensure_empty()?;
+                        CLIConfigParseReturn::Repair
+                    }
+                    "compact" => {
+                        subcommand.settings().ensure_empty()?;
+                        CLIConfigParseReturn::Compact
+                    }
+                    "backup" => {
+                        let mut subcommand = subcommand;
+                        let backup_to = subcommand.settings_mut().option("to")?;
+                        let backup_from = subcommand.settings_mut().take_option("from")?;
+                        let backup_kind = match subcommand.settings_mut().option("type")?.as_ref() {
+                            "direct" => BackupType::Direct,
+                            backup_scheme => {
+                                return Err(ConfigError::with_src(
+                                    ConfigSource::Cli,
+                                    ConfigErrorKind::ErrorString(format!(
+                                        "unknown backup scheme `{backup_scheme}`"
+                                    )),
+                                )
+                                .into())
+                            }
+                        };
+                        let backup_flag_allow_dirty =
+                            subcommand.settings_mut().take_flag("allow-dirty")?;
+                        let backup_description =
+                            subcommand.settings_mut().take_option("description")?;
+                        subcommand.settings().ensure_empty()?;
+                        CLIConfigParseReturn::Backup(BackupSettings::new(
+                            backup_to,
+                            backup_from,
+                            backup_kind,
+                            backup_description,
+                            backup_flag_allow_dirty,
+                        ))
+                    }
+                    "restore" => {
+                        let mut subcommand = subcommand;
+                        let restore_from = subcommand.settings_mut().option("from")?;
+                        let restore_to = subcommand.settings_mut().take_option("to")?;
+                        let flag_allow_incompatible =
+                            subcommand.settings_mut().take_flag("allow-incompatible")?;
+                        let flag_allow_different_host = subcommand
+                            .settings_mut()
+                            .take_flag("allow-different-host")?;
+                        let flag_allow_invalid_date =
+                            subcommand.settings_mut().take_flag("allow-invalid-date")?;
+                        let flag_delete_on_restore =
+                            subcommand.settings_mut().take_flag("delete-on-restore")?;
+                        subcommand.settings().ensure_empty()?;
+                        CLIConfigParseReturn::Restore(RestoreSettings::new(
+                            restore_from,
+                            restore_to,
+                            flag_allow_incompatible,
+                            flag_allow_different_host,
+                            flag_allow_invalid_date,
+                            flag_delete_on_restore,
+                        ))
+                    }
                     _ => {
                         return Err(ConfigError::with_src(
                             ConfigSource::Cli,
@@ -992,6 +1115,8 @@ pub enum ConfigReturn {
     Config(Configuration),
     Repair,
     Compact,
+    Backup(BackupSettings),
+    Restore(RestoreSettings),
 }
 
 impl ConfigReturn {
@@ -1122,6 +1247,8 @@ pub fn check_configuration() -> RuntimeResult<ConfigReturn> {
         }
         CLIConfigParseReturn::Repair => return Ok(ConfigReturn::Repair),
         CLIConfigParseReturn::YieldedConfig(cfg) => Some(cfg),
+        CLIConfigParseReturn::Backup(bkp) => return Ok(ConfigReturn::Backup(bkp)),
+        CLIConfigParseReturn::Restore(restore) => return Ok(ConfigReturn::Restore(restore)),
     };
     match cli_args {
         Some(cfg_from_cli) => {

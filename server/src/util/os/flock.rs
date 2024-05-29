@@ -40,7 +40,11 @@ use {
     },
 };
 
-use std::{fs::File, io, path::Path};
+use std::{
+    fs::{self, File},
+    io,
+    path::{Path, PathBuf},
+};
 
 pub struct FileLock {
     _file: File,
@@ -112,5 +116,36 @@ impl FileLock {
             }
         }
         Ok(())
+    }
+}
+
+pub struct FileLocks {
+    locks: Vec<(PathBuf, FileLock)>,
+}
+
+impl FileLocks {
+    pub fn new() -> Self {
+        Self { locks: Vec::new() }
+    }
+    pub fn lock<P: AsRef<Path>>(&mut self, path: P) -> io::Result<()>
+    where
+        PathBuf: From<P>,
+    {
+        let lck = FileLock::new(&path)?;
+        self.locks.push((PathBuf::from(path), lck));
+        Ok(())
+    }
+    pub fn release(&mut self) -> io::Result<()> {
+        for (path, lck) in self.locks.drain(..) {
+            fs::remove_file(&path)?;
+            drop(lck);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for FileLocks {
+    fn drop(&mut self) {
+        let _ = self.release();
     }
 }

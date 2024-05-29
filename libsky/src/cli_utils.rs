@@ -51,8 +51,12 @@ impl fmt::Display for CliArgsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ArgFmtError(arg) => write!(f, "the argument `--{arg}` is formatted incorrectly"),
-            Self::DuplicateFlag(flag) => write!(f, "found duplicate flag `--{flag}`"),
-            Self::DuplicateOption(opt) => write!(f, "found duplicate option `--{opt}`"),
+            Self::DuplicateFlag(flag) => {
+                write!(f, "found duplicate flag `--{flag}` which is not allowed")
+            }
+            Self::DuplicateOption(opt) => {
+                write!(f, "found duplicate option `--{opt}` which is not allowed")
+            }
             Self::SubcommandDisallowed => write!(f, "subcommands are disallowed in this context"),
             Self::ArgParseError(arg) => write!(f, "failed to parse value assigned to `--{arg}`"),
             Self::Other(e) => write!(f, "{e}"),
@@ -120,13 +124,20 @@ impl ArgItem for String {
 }
 
 pub trait CliArgsOptions: Default {
+    type Value;
     fn is_unset(&self) -> bool;
     fn push_option(&mut self, option: String, value: String) -> CliResult<()>;
+    fn take_option(&mut self, option: &str) -> Option<Self::Value>;
+    fn contains(&self, option: &str) -> bool;
 }
 
 impl CliArgsOptions for SingleOption {
+    type Value = String;
     fn is_unset(&self) -> bool {
         self.is_empty()
+    }
+    fn contains(&self, option: &str) -> bool {
+        self.contains_key(option)
     }
     fn push_option(&mut self, option: String, value: String) -> CliResult<()> {
         match self.entry(option) {
@@ -137,11 +148,18 @@ impl CliArgsOptions for SingleOption {
             Entry::Occupied(oe) => return Err(CliArgsError::DuplicateOption(oe.key().to_string())),
         }
     }
+    fn take_option(&mut self, option: &str) -> Option<Self::Value> {
+        self.remove(option)
+    }
 }
 
 impl CliArgsOptions for MultipleOptions {
+    type Value = Vec<String>;
     fn is_unset(&self) -> bool {
         self.is_empty()
+    }
+    fn contains(&self, option: &str) -> bool {
+        self.contains_key(option)
     }
     fn push_option(&mut self, option: String, value: String) -> CliResult<()> {
         match self.entry(option) {
@@ -151,6 +169,9 @@ impl CliArgsOptions for MultipleOptions {
             }
         }
         Ok(())
+    }
+    fn take_option(&mut self, option: &str) -> Option<Self::Value> {
+        self.remove(option)
     }
 }
 
@@ -255,6 +276,19 @@ pub struct CliCommandData<Opt: CliArgsOptions> {
 }
 
 impl<Opt: CliArgsOptions> CliCommandData<Opt> {
+    pub fn take_flag(&mut self, flag: &str) -> CliResult<bool> {
+        if self.flags.remove(flag) {
+            Ok(true)
+        } else {
+            if self.options.contains(flag) {
+                Err(CliArgsError::Other(format!(
+                    "expected `--{flag}` to be a flag but found an option"
+                )))
+            } else {
+                Ok(false)
+            }
+        }
+    }
     pub fn into_options_only(self) -> CliResult<Opt> {
         if self.flags.is_empty() {
             Ok(self.options)
@@ -272,15 +306,12 @@ impl<Opt: CliArgsOptions> CliCommandData<Opt> {
             Ok(())
         } else {
             Err(CliArgsError::Other(format!(
-                "found unknown flags and options",
+                "found unknown flags or options",
             )))
         }
     }
-}
-
-impl CliCommandData<SingleOption> {
-    pub fn take_option(&mut self, option: &str) -> CliResult<Option<String>> {
-        match self.options.remove(option) {
+    pub fn take_option(&mut self, option: &str) -> CliResult<Option<Opt::Value>> {
+        match self.options.take_option(option) {
             Some(opt) => Ok(Some(opt)),
             None => {
                 if self.flags.contains(option) {
@@ -293,6 +324,17 @@ impl CliCommandData<SingleOption> {
             }
         }
     }
+    pub fn option(&mut self, option: &str) -> CliResult<Opt::Value> {
+        match self.take_option(option)? {
+            Some(opt) => Ok(opt),
+            None => Err(CliArgsError::Other(format!(
+                "option `--{option}` is required"
+            ))),
+        }
+    }
+}
+
+impl CliCommandData<SingleOption> {
     pub fn parse_take_option<T: FromStr>(&mut self, option: &str) -> CliResult<Option<T>> {
         match self.options.remove(option) {
             Some(opt) => match opt.parse() {
