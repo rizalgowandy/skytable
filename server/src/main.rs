@@ -117,7 +117,7 @@ fn exit(
         }
     }
     match result {
-        Ok(()) => println!("goodbye"),
+        Ok(()) => info!("exited. goodbye!"),
         Err(e) => exit_fatal!(error!("{e}")),
     }
 }

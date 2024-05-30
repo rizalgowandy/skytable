@@ -39,6 +39,7 @@ use {
                 system_db::{SystemDatabase, VerifyUser},
                 EntityIDRef, GNSData, GlobalNS,
             },
+            error::StorageError,
             fractal::{context, FractalGNSDriver},
             storage::{
                 common::{interface::fs::FileSystem, paths_v1},
@@ -52,7 +53,10 @@ use {
             txn::gns::sysctl::{AlterUserTxn, CreateUserTxn},
             RuntimeResult,
         },
-        util::{self, os::FileLocks},
+        util::{
+            self,
+            os::{self, FileLocks},
+        },
     },
     impls::{
         backup_manifest::{BackupContext, BackupManifest},
@@ -133,7 +137,7 @@ pub fn load(cfg: &Configuration) -> RuntimeResult<SELoaded> {
     let (mut gns_driver, gns_driver_stats) =
         impls::gns_log::GNSDriver::open_gns(&gns, JournalSettings::default())?;
     if gns_driver_stats.recommended_action().needs_compaction() {
-        full_backup("before-startup-compaction")?;
+        full_backup("before-startup-compaction", BackupContext::BeforeCompaction)?;
         did_backup = true;
         gns_driver = journal::compact_journal::<true, EventLogAdapter<GNSEventLog>>(
             GNS_PATH, gns_driver, &gns,
@@ -159,11 +163,10 @@ pub fn load(cfg: &Configuration) -> RuntimeResult<SELoaded> {
                     mdl_stats.recommended_action().reason_str()
                 );
                 if !did_backup {
-                    full_backup(&format!(
-                        "before-compaction-of-model-{}.{}",
-                        id.entity(),
-                        id.space()
-                    ))?;
+                    full_backup(
+                        &format!("before-compaction-of-model-{}.{}", id.entity(), id.space()),
+                        BackupContext::BeforeCompaction,
+                    )?;
                     did_backup = true;
                 }
                 model_driver = journal::compact_journal::<true, BatchAdapter<ModelDataAdapter>>(
@@ -227,7 +230,7 @@ pub fn load(cfg: &Configuration) -> RuntimeResult<SELoaded> {
 */
 
 pub fn repair() -> RuntimeResult<()> {
-    full_backup("before-recovery-process")?;
+    full_backup("before-recovery-process", BackupContext::BeforeRepair)?;
     // check and attempt repair: GNS
     let gns = GNSData::empty();
     context::set_dmsg("repair GNS");
@@ -268,11 +271,16 @@ pub fn repair() -> RuntimeResult<()> {
     Ok(())
 }
 
-fn full_backup(name: &str) -> RuntimeResult<()> {
-    _full_backup(name, true)
+fn full_backup(name: &str, context: BackupContext) -> RuntimeResult<()> {
+    _full_backup(name, true, context, None)
 }
 
-fn _full_backup(name: &str, standard_backup: bool) -> RuntimeResult<()> {
+fn _full_backup(
+    name: &str,
+    standard_backup: bool,
+    context: BackupContext,
+    description: Option<String>,
+) -> RuntimeResult<()> {
     let backup_dir = if standard_backup {
         format!("backups/{}-{name}", util::time_now_string())
     } else {
@@ -282,6 +290,12 @@ fn _full_backup(name: &str, standard_backup: bool) -> RuntimeResult<()> {
         context::set_dmsg("creating backup directory");
         FileSystem::create_dir_all(&backup_dir)?;
     }
+    context::set_dmsg("creating backup manifest");
+    BackupManifest::create(
+        &format!("{backup_dir}/{BACKUP_MANIFEST_FILE}"),
+        context,
+        description,
+    )?;
     context::set_dmsg("backing up GNS");
     FileSystem::copy(GNS_PATH, &format!("{backup_dir}/{GNS_PATH}"))?;
     context::set_dmsg("backing up data directory");
@@ -304,7 +318,7 @@ fn print_repair_info(result: RepairResult, id: &str) {
 }
 
 pub fn compact() -> RuntimeResult<()> {
-    full_backup("before-compaction")?;
+    full_backup("before-compaction", BackupContext::BeforeCompaction)?;
     let gns = GNSData::empty();
     context::set_dmsg("reading GNS");
     let stats = journal::read_journal::<GNSAdapter>(GNS_PATH, &gns, JournalSettings::default())?;
@@ -347,6 +361,8 @@ pub fn compact() -> RuntimeResult<()> {
     backup
 */
 
+const BACKUP_MANIFEST_FILE: &str = "backup.manifest";
+
 pub fn backup(settings: BackupSettings) -> RuntimeResult<()> {
     match settings.kind {
         BackupType::Direct => {}
@@ -368,17 +384,13 @@ pub fn backup(settings: BackupSettings) -> RuntimeResult<()> {
     // lock backup directory
     context::set_dmsg("locking backup directory");
     locks.lock(pathbuf!(&settings.to, crate::SKY_PID_FILE))?;
-    // create manifest
-    context::set_dmsg("creating backup manifest");
-    let manifest_path = pathbuf!(&settings.to, "backup.manifest");
-    BackupManifest::create(
-        manifest_path.to_str().unwrap(),
+    // initiate backup
+    _full_backup(
+        &settings.to,
+        false,
         BackupContext::Manual,
         settings.description,
     )?;
-    // recursively back files up
-    context::set_dmsg("copying files to backup directory");
-    _full_backup(&settings.to, false)?;
     // release locks
     context::set_dmsg("releasing directory locks");
     locks.release()?;
@@ -389,6 +401,81 @@ pub fn backup(settings: BackupSettings) -> RuntimeResult<()> {
     restore
 */
 
-pub fn restore(_: RestoreSettings) -> RuntimeResult<()> {
+pub fn restore(settings: RestoreSettings) -> RuntimeResult<()> {
+    context::set_dmsg("opening backup manifest");
+    let backup_manifest =
+        BackupManifest::open(&format!("{}/{BACKUP_MANIFEST_FILE}", &settings.from))?;
+    let this_host_name = &os::get_hostname();
+    if backup_manifest.hostname() != this_host_name.as_str() {
+        if settings.flag_allow_different_host {
+            warn!(
+                "this backup is from a different host ({})",
+                backup_manifest.hostname()
+            )
+        } else {
+            context::set_dmsg(format!(
+                "expected backup to be from host {} but backup is from {}",
+                this_host_name.as_str(),
+                backup_manifest.hostname()
+            ));
+            return Err(StorageError::RuntimeRestoreValidationFailure.into());
+        }
+    }
+    if backup_manifest.date() >= chrono::Utc::now().naive_utc() {
+        if settings.flag_allow_invalid_date {
+            warn!(
+                "the date of this backup is in the future ({})",
+                backup_manifest.date()
+            )
+        } else {
+            context::set_dmsg(format!(
+                "the date of this backup is in the future ({})",
+                backup_manifest.date()
+            ));
+            return Err(StorageError::RuntimeRestoreValidationFailure.into());
+        }
+    }
+    // output backup information
+    let mut backup_info_fmt = format!(
+        "this backup was created {}",
+        backup_manifest.context().context_str()
+    );
+    if let Some(description) = backup_manifest.description() {
+        backup_info_fmt.push_str(" with description ");
+        backup_info_fmt.push_str(&format!("{description:?}"));
+    }
+    backup_info_fmt.push_str(&format!(" on {} (UTC)", backup_manifest.date()));
+    info!("{backup_info_fmt}");
+    // now restore the files
+    // restore gns
+    context::set_dmsg("restoring GNS");
+    FileSystem::copy(
+        pathbuf!(&settings.from, GNS_PATH).to_str().unwrap(),
+        if let Some(to) = settings.to.as_deref() {
+            pathbuf!(to, GNS_PATH)
+        } else {
+            pathbuf!(GNS_PATH)
+        }
+        .to_str()
+        .unwrap(),
+    )?;
+    // restore data dir
+    context::set_dmsg("restoring data directory");
+    FileSystem::copy_directory(
+        pathbuf!(&settings.from, DATA_DIR).to_str().unwrap(),
+        if let Some(to) = settings.to.as_deref() {
+            pathbuf!(to, DATA_DIR)
+        } else {
+            pathbuf!(DATA_DIR)
+        }
+        .to_str()
+        .unwrap(),
+    )?;
+    if settings.flag_delete_on_restore_completion {
+        context::set_dmsg("removing backup directory that was recently restored");
+        FileSystem::remove_dir_all(&settings.from)?;
+        info!("successfully removed the backup directory that was used for the restore process");
+    }
+    info!("restore completed successfully");
     Ok(())
 }

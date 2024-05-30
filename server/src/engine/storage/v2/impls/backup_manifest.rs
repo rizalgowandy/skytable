@@ -23,8 +23,6 @@
  *
 */
 
-#![allow(dead_code)]
-
 use {
     crate::{
         engine::{
@@ -139,10 +137,19 @@ impl<'a> PersistObject for BackupManifestStorage<'a> {
 #[derive(Debug, PartialEq, Clone, Copy, sky_macros::TaggedEnum, sky_macros::EnumMethods)]
 #[repr(u8)]
 pub enum BackupContext {
-    BeforeUpgrade = 0,
+    BeforeRepair = 0,
     BeforeCompaction = 1,
     Manual = 2,
-    BeforeRestore = 3,
+}
+
+impl BackupContext {
+    pub const fn context_str(&self) -> &'static str {
+        match self {
+            Self::BeforeRepair => "before a repair operation",
+            Self::BeforeCompaction => "before a compaction operation",
+            Self::Manual => "manually",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -174,5 +181,17 @@ impl BackupManifest {
         let date = Utc::now().format("%Y%m%d%H%M%S").to_string();
         let hostname = os::get_hostname().as_str().to_string();
         enc::full::<BackupManifestStorage>(&(context, hostname, date, description))
+    }
+    pub fn context(&self) -> BackupContext {
+        self.context
+    }
+    pub fn hostname(&self) -> &str {
+        &self.hostname
+    }
+    pub fn date(&self) -> NaiveDateTime {
+        self.date
+    }
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
     }
 }

@@ -1175,6 +1175,7 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
             ErrorKind::Storage(e) => match e {
                 // unreachable errors (no execution path here)
                 | StorageError::RawJournalRuntimeDirty
+                | StorageError::RuntimeRestoreValidationFailure
                 | StorageError::FileDecodeHeaderVersionMismatch         // should be caught earlier
                 | StorageError::FileDecodeHeaderCorrupted               // should be caught earlier
                 | StorageError::V1JournalDecodeLogEntryCorrupted        // v1 errors can't be raised here

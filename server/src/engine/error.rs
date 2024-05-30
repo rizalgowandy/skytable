@@ -252,5 +252,6 @@ enumerate_err! {
             ----
         */
         RawJournalRuntimeDirty = "journal-in-dirty-state",
+        RuntimeRestoreValidationFailure = "restore-data-validation-failed",
     }
 }
