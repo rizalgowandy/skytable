@@ -30,8 +30,11 @@ use {
         setup,
         workload::{workloads, Workload},
     },
-    libsky::{env_vars, CliAction},
-    std::{collections::hash_map::HashMap, env},
+    libsky::{
+        cli_utils::{CliCommand, CliCommandData, CommandLineArgs, SingleOption},
+        variables::env_vars,
+    },
+    std::env,
 };
 
 const TXT_HELP: &str = include_str!(concat!(env!("OUT_DIR"), "/sky-bench"));
@@ -39,7 +42,7 @@ const TXT_HELP: &str = include_str!(concat!(env!("OUT_DIR"), "/sky-bench"));
 #[derive(Debug)]
 enum TaskInner {
     HelpMsg(String),
-    CheckConfig(HashMap<String, String>),
+    CheckConfig(CliCommandData<SingleOption>),
 }
 
 #[derive(Debug)]
@@ -79,11 +82,11 @@ impl BenchConfig {
 }
 
 fn load_env() -> BenchResult<TaskInner> {
-    let action = libsky::parse_cli_args_disallow_duplicate()?;
+    let action = CliCommand::<SingleOption>::from_cli()?;
     match action {
-        CliAction::Help => Ok(TaskInner::HelpMsg(TXT_HELP.into())),
-        CliAction::Version => Ok(TaskInner::HelpMsg(libsky::version_msg("sky-bench"))),
-        CliAction::Action(a) => Ok(TaskInner::CheckConfig(a)),
+        CliCommand::Help(_) => Ok(TaskInner::HelpMsg(TXT_HELP.to_string())),
+        CliCommand::Version(_) => Ok(TaskInner::HelpMsg(libsky::version_msg("sky-bench"))),
+        CliCommand::Run(a) => Ok(TaskInner::CheckConfig(a)),
     }
 }
 
@@ -101,39 +104,41 @@ pub fn parse_and_setup() -> BenchResult<Task> {
         TaskInner::CheckConfig(args) => args,
     };
     // endpoint
-    let (host, port) = match args.remove("--endpoint") {
+    let (host, port) = match args.take_option("endpoint")? {
         None => ("127.0.0.1".to_owned(), 2003),
         Some(ep) => {
             // proto@host:port
             let ep: Vec<&str> = ep.split("@").collect();
             if ep.len() != 2 {
                 return Err(BenchError::ArgsErr(
-                    "value for --endpoint must be in the form `[protocol]@[host]:[port]`".into(),
+                    "value for --endpoint must be in the form `[protocol]@[host]:[port]`"
+                        .to_string(),
                 ));
             }
             let protocol = ep[0];
             let host_port: Vec<&str> = ep[1].split(":").collect();
             if host_port.len() != 2 {
                 return Err(BenchError::ArgsErr(
-                    "value for --endpoint must be in the form `[protocol]@[host]:[port]`".into(),
+                    "value for --endpoint must be in the form `[protocol]@[host]:[port]`"
+                        .to_string(),
                 ));
             }
             let (host, port) = (host_port[0], host_port[1]);
             let Ok(port) = port.parse::<u16>() else {
                 return Err(BenchError::ArgsErr(
-                    "the value for port must be an integer in the range 0-65535".into(),
+                    "the value for port must be an integer in the range 0-65535".to_string(),
                 ));
             };
             if protocol != "tcp" {
                 return Err(BenchError::ArgsErr(
-                    "only TCP endpoints can be benchmarked at the moment".into(),
+                    "only TCP endpoints can be benchmarked at the moment".to_string(),
                 ));
             }
             (host.to_owned(), port)
         }
     };
     // password
-    let password = match args.remove("--password") {
+    let password = match args.take_option("password")? {
         Some(p) => p,
         None => {
             // check env?
@@ -141,46 +146,32 @@ pub fn parse_and_setup() -> BenchResult<Task> {
                 Ok(p) => p,
                 Err(_) => {
                     return Err(BenchError::ArgsErr(
-                        "you must provide a value for `--password`".into(),
+                        "you must provide a value for `--password`".to_string(),
                     ))
                 }
             }
         }
     };
     // threads
-    let thread_count = match args.remove("--threads") {
+    let thread_count = match args.take_option("threads")? {
         None => num_cpus::get(),
         Some(tc) => match tc.parse() {
             Ok(tc) if tc > 0 => tc,
             Err(_) | Ok(_) => {
                 return Err(BenchError::ArgsErr(
-                    "incorrect value for `--threads`. must be a nonzero value".into(),
+                    "incorrect value for `--threads`. must be a nonzero value".to_string(),
                 ))
             }
         },
     };
     // query count
-    let query_count = match args.remove("--rowcount") {
-        None => 1_000_000_usize,
-        Some(rc) => match rc.parse() {
-            Ok(rc) if rc != 0 => rc,
-            Err(_) | Ok(_) => {
-                return Err(BenchError::ArgsErr(format!(
-                    "bad value for `--rowcount` must be a nonzero value"
-                )))
-            }
-        },
-    };
+    let query_count = args
+        .parse_take_option("rowcount")?
+        .unwrap_or(1_000_000_usize);
     let need_atleast = cdig(query_count);
-    let key_size = match args.remove("--keysize") {
-        None => need_atleast,
-        Some(ks) => match ks.parse() {
-            Ok(s) if s >= need_atleast => s,
-            Err(_) | Ok(_) => return Err(BenchError::ArgsErr(format!("incorrect value for `--keysize`. must be set to a value that can be used to generate atleast {query_count} unique primary keys"))),
-        }
-    };
-    let workload = match args.remove("--workload") {
-        Some(workload) => match workload.as_str() {
+    let key_size = args.parse_take_option("keysize")?.unwrap_or(need_atleast);
+    let workload = match args.take_option("workload")? {
+        Some(workload) => match workload.as_ref() {
             workloads::UniformV1Std::ID => BenchType::Workload(BenchWorkload::UniformV1),
             _ => {
                 return Err(BenchError::ArgsErr(format!(
@@ -188,7 +179,7 @@ pub fn parse_and_setup() -> BenchResult<Task> {
                 )))
             }
         },
-        None => match args.remove("--engine") {
+        None => match args.take_option("engine")? {
             None => {
                 warn!(
                     "workload not specified. choosing default workload '{}'",
@@ -196,7 +187,7 @@ pub fn parse_and_setup() -> BenchResult<Task> {
                 );
                 BenchType::Workload(BenchWorkload::UniformV1)
             }
-            Some(engine) => BenchType::Legacy(match engine.as_str() {
+            Some(engine) => BenchType::Legacy(match engine.as_ref() {
                 "rookie" => LegacyBenchEngine::Rookie,
                 "fury" => LegacyBenchEngine::Fury,
                 _ => {
@@ -207,39 +198,32 @@ pub fn parse_and_setup() -> BenchResult<Task> {
             }),
         },
     };
-    let connections = match args.remove("--connections") {
+    let connections = match args.parse_take_option("connections")? {
         None => num_cpus::get() * 8,
-        Some(c) => match c.parse::<usize>() {
-            Ok(s) if s != 0 => {
-                if workload == BenchType::Legacy(LegacyBenchEngine::Rookie) {
-                    return Err(BenchError::ArgsErr(format!(
-                        "the 'rookie' engine does not support explicit connection count. the number of threads is the connection count"
-                    )));
-                }
-                s
-            }
-            _ => {
+        Some(c) => {
+            if c == 0 {
                 return Err(BenchError::ArgsErr(format!(
                     "bad value for `--connections`. must be a nonzero value"
-                )))
+                )));
             }
-        },
-    };
-    if args.is_empty() {
-        unsafe {
-            setup::configure(
-                "root".into(),
-                password,
-                host,
-                port,
-                thread_count,
-                connections,
-                key_size,
-                query_count,
-            )
+            if workload == BenchType::Legacy(LegacyBenchEngine::Rookie) {
+                return Err(BenchError::ArgsErr(format!("the 'rookie' engine does not support explicit connection count. the number of threads is the connection count")));
+            }
+            c
         }
-        Ok(Task::BenchConfig(BenchConfig::new(workload)))
-    } else {
-        Err(BenchError::ArgsErr(format!("unrecognized arguments")))
+    };
+    args.ensure_empty()?;
+    unsafe {
+        setup::configure(
+            "root".to_string(),
+            password,
+            host,
+            port,
+            thread_count,
+            connections,
+            key_size,
+            query_count,
+        )
     }
+    Ok(Task::BenchConfig(BenchConfig::new(workload)))
 }

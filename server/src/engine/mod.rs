@@ -41,15 +41,19 @@ mod txn;
 // test
 #[cfg(test)]
 mod tests;
-// re-export
-pub use {error::RuntimeResult, fractal::Global};
 
-use crate::engine::storage::SELoaded;
+// re-export
+pub use {
+    error::RuntimeResult,
+    fractal::Global,
+    storage::{backup, compact, repair, restore},
+};
 
 use {
     self::{
         config::{ConfigEndpoint, ConfigEndpointTls, ConfigMode, Configuration},
         fractal::context::{self, Subsystem},
+        storage::SELoaded,
     },
     crate::util::os::TerminationSignal,
     tokio::sync::broadcast,
@@ -197,12 +201,4 @@ pub fn finish(g: fractal::Global) {
         // UNSAFE(@ohsayan): the only thing we do before exit
         g.unload_all();
     }
-}
-
-pub fn repair() -> RuntimeResult<()> {
-    storage::repair()
-}
-
-pub fn compact() -> RuntimeResult<()> {
-    storage::compact()
 }

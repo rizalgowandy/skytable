@@ -1,0 +1,31 @@
+███████ ██   ██ ██    ██ ████████  █████  ██████  ██      ███████
+██      ██  ██   ██  ██     ██    ██   ██ ██   ██ ██      ██
+███████ █████     ████      ██    ███████ ██████  ██      █████
+     ██ ██  ██     ██       ██    ██   ██ ██   ██ ██      ██
+███████ ██   ██    ██       ██    ██   ██ ██████  ███████ ███████
+
+Skytable {version} | https://github.com/skytable/skytable
+Copyright (c) Sayan N. <ohsayan@outlook.com>
+
+Skytable database server daemon (skyd): database file optimization utility
+
+Details:
+  The `compact` subcommand optimizes the database files by removing any stale or deleted
+  data and/or applying other operations. This can help improve database performance,
+  efficiency and reduce disk usage.
+
+Usage: skyd compact
+
+Informational flags:
+  -h, --help                    Display this help menu and exit.
+  -v, --version                 Display the version number and exit.
+
+Examples:
+  skyd compact
+
+Notes:
+    - This command will force a compaction even if it is not required
+    - All data is backed up prior to compaction in the 'backups/' directory in a folder
+    named using the following template 'YYYYMMDD_HHMMSS-before-compaction'
+
+{further_assistance}

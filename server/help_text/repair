@@ -1,0 +1,31 @@
+███████ ██   ██ ██    ██ ████████  █████  ██████  ██      ███████
+██      ██  ██   ██  ██     ██    ██   ██ ██   ██ ██      ██
+███████ █████     ████      ██    ███████ ██████  ██      █████
+     ██ ██  ██     ██       ██    ██   ██ ██   ██ ██      ██
+███████ ██   ██    ██       ██    ██   ██ ██████  ███████ ███████
+
+Skytable {version} | https://github.com/skytable/skytable
+Copyright (c) Sayan N. <ohsayan@outlook.com>
+
+Skytable database server daemon (skyd): database repair utility
+
+Details:
+  The `repair` subcommand checks the integrity of all database files and attempts to repair
+  any files that are found to have issues such as data corruption or inconsistencies.
+
+Usage: skyd repair
+
+Informational flags:
+  -h, --help                    Display this help menu and exit.
+  -v, --version                 Display the version number and exit.
+
+Examples:
+  skyd repair
+
+Notes:
+    - This command will check the integrity of all database files and attempt to repair
+    any files that are found to have any issues
+    - All data is backed up prior to compaction in the 'backups/' directory in a folder
+    named using the following template 'YYYYMMDD_HHMMSS-before-recovery-process'
+
+{further_assistance}

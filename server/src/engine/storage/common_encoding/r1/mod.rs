@@ -217,7 +217,6 @@ pub mod enc {
     use super::{map, MapStorageSpec};
     use super::{PersistObject, VecU8};
     // obj
-    #[cfg(test)]
     pub fn full<Obj: PersistObject>(obj: Obj::InputType) -> Vec<u8> {
         let mut v = vec![];
         full_into_buffer::<Obj>(&mut v, obj);
@@ -250,7 +249,6 @@ pub mod dec {
         crate::engine::{error::RuntimeResult, mem::BufferedScanner},
     };
     // obj
-    #[cfg(test)]
     pub fn full<Obj: PersistObject>(data: &[u8]) -> RuntimeResult<Obj::OutputType> {
         let mut scanner = BufferedScanner::new(data);
         full_from_scanner::<Obj>(&mut scanner)

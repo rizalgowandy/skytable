@@ -141,7 +141,7 @@ impl SDSSFileIO<File> {
     pub fn open<S: sdss::sdss_r1::FileSpecV1<DecodeArgs = ()>>(
         fpath: &str,
     ) -> RuntimeResult<(Self, S::Metadata)> {
-        let mut f = Self::_new(File::open(fpath)?);
+        let mut f = Self::_new(File::open_rw(fpath)?);
         let v = S::read_metadata(&mut f.f, ())?;
         Ok((f, v))
     }

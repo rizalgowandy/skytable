@@ -95,7 +95,7 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.origin {
-            Some(orig) => write!(f, "{} error: ", orig.as_str()),
+            Some(orig) => write!(f, "{} failure: ", orig.as_str()),
             None => write!(f, "runtime error: "),
         }?;
         match self.dmsg.as_ref() {
@@ -337,5 +337,11 @@ impl IntoError for TransactionError {
     }
     fn err_inherit_parent(self) -> Error {
         self.into()
+    }
+}
+
+impl From<libsky::cli_utils::CliArgsError> for Error {
+    fn from(e: libsky::cli_utils::CliArgsError) -> Self {
+        Self::with_origin(ErrorKind::Config(ConfigError::from(e)), Subsystem::Init)
     }
 }

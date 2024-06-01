@@ -73,7 +73,7 @@ pub fn read_journal<J: RawJournalAdapter>(
 where
     J::Spec: FileSpecV1<DecodeArgs = ()>,
 {
-    let log = SdssFile::<J::Spec>::open(log_path)?;
+    let log = SdssFile::<J::Spec>::open_rw(log_path)?;
     RawJournalReader::<J>::scroll(log, gs, settings).map(|x| x.1)
 }
 
@@ -86,7 +86,7 @@ pub fn open_journal<J: RawJournalAdapter>(
 where
     J::Spec: FileSpecV1<DecodeArgs = ()>,
 {
-    let log = SdssFile::<J::Spec>::open(log_path)?;
+    let log = SdssFile::<J::Spec>::open_rw(log_path)?;
     let (initializer, stats, file) = RawJournalReader::<J>::scroll(log, gs, settings)?;
     RawJournalWriter::new(initializer, file).map(|jw| (jw, stats))
 }
@@ -115,7 +115,7 @@ pub fn repair_journal<J: RawJournalAdapter>(
 where
     J::Spec: FileSpecV1<DecodeArgs = ()>,
 {
-    let log = SdssFile::<J::Spec>::open(log_path)?;
+    let log = SdssFile::<J::Spec>::open_rw(log_path)?;
     RawJournalReader::<J>::repair(log, gs, settings, repair_mode).map(|(lost, ..)| lost)
 }
 
@@ -728,7 +728,7 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
     where
         <J as RawJournalAdapter>::Spec: FileSpecV1<DecodeArgs = ()>,
     {
-        let mut f = File::open(journal_path)?;
+        let mut f = File::open_rw(journal_path)?;
         f.f_seek_start(log_file_cursor)?;
         let mut log_file =
             TrackedWriter::<J::Spec>::new_full(f, log_file_md, log_file_cursor, log_file_checksum);
@@ -1175,6 +1175,8 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
             ErrorKind::Storage(e) => match e {
                 // unreachable errors (no execution path here)
                 | StorageError::RawJournalRuntimeDirty
+                | StorageError::RuntimeEngineLoadError
+                | StorageError::RuntimeRestoreValidationFailure
                 | StorageError::FileDecodeHeaderVersionMismatch         // should be caught earlier
                 | StorageError::FileDecodeHeaderCorrupted               // should be caught earlier
                 | StorageError::V1JournalDecodeLogEntryCorrupted        // v1 errors can't be raised here

@@ -37,16 +37,9 @@ pub enum CliError {
     OtherError(&'static str),
 }
 
-impl From<libsky::ArgParseError> for CliError {
-    fn from(e: libsky::ArgParseError) -> Self {
-        match e {
-            libsky::ArgParseError::Duplicate(d) => {
-                Self::ArgsErr(format!("duplicate value for `{d}`"))
-            }
-            libsky::ArgParseError::MissingValue(m) => {
-                Self::ArgsErr(format!("missing value for `{m}`"))
-            }
-        }
+impl From<libsky::cli_utils::CliArgsError> for CliError {
+    fn from(value: libsky::cli_utils::CliArgsError) -> Self {
+        Self::ArgsErr(value.to_string())
     }
 }
 

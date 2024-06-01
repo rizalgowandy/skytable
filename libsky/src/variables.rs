@@ -1,7 +1,6 @@
 /*
- * Created on Sun Feb 18 2024
- *
  * This file is a part of Skytable
+ *
  * Skytable (formerly known as TerrabaseDB or Skybase) is a free and open-source
  * NoSQL database written by Sayan Nandan ("the Author") with the
  * vision to provide flexibility in data modelling without compromising
@@ -24,8 +23,19 @@
  *
 */
 
-pub mod backup_manifest;
-pub mod gns_log;
-pub mod mdl_journal;
-#[cfg(test)]
-mod tests;
+/// The current version
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The URL
+pub const URL: &str = "https://github.com/skytable/skytable";
+
+pub mod env_vars {
+    /// the environment variable to set the password to use with any tool (skysh,sky-bench,..)
+    pub const SKYDB_PASSWORD: &str = "SKYDB_PASSWORD";
+}
+
+pub mod test_utils {
+    pub const DEFAULT_USER_NAME: &str = "root";
+    pub const DEFAULT_USER_PASS: &str = "mypassword12345678";
+    pub const DEFAULT_HOST: &str = "127.0.0.1";
+    pub const DEFAULT_PORT: u16 = 2003;
+}

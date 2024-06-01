@@ -48,21 +48,17 @@ pub mod safe_interfaces {
     loader impl
 */
 
-pub use v2::impls::{
-    gns_log::GNSDriver,
-    mdl_journal::{BatchStats, ModelDriver},
+pub use v2::{
+    backup, compact,
+    impls::{
+        gns_log::GNSDriver,
+        mdl_journal::{BatchStats, ModelDriver},
+    },
+    repair, restore,
 };
 
 pub struct SELoaded {
     pub gns: GlobalNS,
-}
-
-pub fn repair() -> RuntimeResult<()> {
-    v2::repair()
-}
-
-pub fn compact() -> RuntimeResult<()> {
-    v2::compact()
 }
 
 pub fn load(cfg: &Configuration) -> RuntimeResult<SELoaded> {
@@ -85,6 +81,6 @@ pub fn load(cfg: &Configuration) -> RuntimeResult<SELoaded> {
     } else {
         info!("reinitializing databases");
         context::set_dmsg("loading databases");
-        v2::restore(cfg)
+        v2::load(cfg)
     }
 }

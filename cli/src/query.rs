@@ -26,7 +26,7 @@
 
 use {
     crate::{
-        args::{ClientConfig, ClientConfigKind},
+        args::{ClientConfig, EndpointConfig},
         error::{CliError, CliResult},
     },
     skytable::{
@@ -42,7 +42,7 @@ pub fn connect<T>(
     tls_f: impl Fn(ConnectionTls) -> CliResult<T>,
 ) -> CliResult<T> {
     match cfg.kind {
-        ClientConfigKind::Tcp(host, port) => {
+        EndpointConfig::Tcp(host, port) => {
             let c = Config::new(&host, port, &cfg.username, &cfg.password).connect()?;
             if print_con_info {
                 println!(
@@ -52,7 +52,7 @@ pub fn connect<T>(
             }
             tcp_f(c)
         }
-        ClientConfigKind::Tls(host, port, cert) => {
+        EndpointConfig::Tls(host, port, cert) => {
             let c = Config::new(&host, port, &cfg.username, &cfg.password).connect_tls(&cert)?;
             if print_con_info {
                 println!(

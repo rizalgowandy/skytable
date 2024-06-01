@@ -48,6 +48,7 @@ pub type Header = HeaderV1<HeaderImplV2>;
 pub enum FileClass {
     EventLog = 0,
     Batch = 1,
+    BackupMetadata = 2,
 }
 
 #[derive(
@@ -65,6 +66,7 @@ pub enum FileClass {
 pub enum FileSpecifier {
     GlobalNS = 0,
     ModelData = 1,
+    BackupManifest = 2,
 }
 
 #[derive(Debug, Clone)]

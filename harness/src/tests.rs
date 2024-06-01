@@ -30,7 +30,7 @@ use {
         bundle, linuxpkg, util,
         util::WORKSPACE_ROOT,
     },
-    libsky::VERSION,
+    libsky::variables::VERSION,
     std::{env, path::PathBuf},
 };
 

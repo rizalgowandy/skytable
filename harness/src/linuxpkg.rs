@@ -29,7 +29,7 @@ use {
         build::{self, BuildMode},
         {util, HarnessResult},
     },
-    libsky::VERSION,
+    libsky::variables::VERSION,
 };
 
 /// The Linux package type

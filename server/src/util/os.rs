@@ -40,7 +40,10 @@ use {
         time::{SystemTime, UNIX_EPOCH},
     },
 };
-pub use {flock::FileLock, free_memory::free_memory_in_bytes};
+pub use {
+    flock::{FileLock, FileLocks},
+    free_memory::free_memory_in_bytes,
+};
 
 #[derive(Debug)]
 #[repr(transparent)]

@@ -225,8 +225,8 @@ impl<W: Workload> WorkloadDriver<W> {
             W::task_cleanup(&task);
         }
         Ok(ComprehensiveRuntimeStats::new(
-            format!("v{}", libsky::VERSION).into_boxed_str(),
-            format!("v{}", libsky::VERSION).into_boxed_str(),
+            format!("v{}", libsky::variables::VERSION).into_boxed_str(),
+            format!("v{}", libsky::variables::VERSION).into_boxed_str(),
             "Skyhash/2.0".into(),
             W::ID.into(),
             format!(

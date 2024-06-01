@@ -312,7 +312,7 @@ fn emulate_final_event_corruption(
         initializers,
         |original_journal, modified_journal, _, trim_amount, _offsets| {
             FileSystem::copy(original_journal, modified_journal)?;
-            let mut f = File::open(modified_journal)?;
+            let mut f = File::open_rw(modified_journal)?;
             let real_flen = f.f_len()? as usize;
             f.f_truncate((real_flen - trim_amount) as _)?;
             Ok(ModifiedJournalStorageInfo::new(
@@ -1132,7 +1132,7 @@ fn midway_corruption_close() {
                         );
                     } else {
                         // this is a serious midway corruption with major data loss
-                        let full_log_size = File::open(journal_id).unwrap().f_len().unwrap();
+                        let full_log_size = File::open_rw(journal_id).unwrap().f_len().unwrap();
                         assert_eq!(
                             repair_result.expect(&format!(
                                 "failed at trim_size {trim_size} for journal {journal_id}"

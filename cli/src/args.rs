@@ -30,9 +30,11 @@ use {
         event::{self, Event, KeyCode, KeyEvent},
         terminal,
     },
-    libsky::{env_vars, CliAction},
+    libsky::{
+        cli_utils::{CliCommand, CliCommandData, CommandLineArgs, SingleOption},
+        variables::env_vars,
+    },
     std::{
-        collections::HashMap,
         env, fs,
         io::{self, Write},
         process::exit,
@@ -43,13 +45,13 @@ const TXT_HELP: &str = include_str!(concat!(env!("OUT_DIR"), "/skysh"));
 
 #[derive(Debug)]
 pub struct ClientConfig {
-    pub kind: ClientConfigKind,
+    pub kind: EndpointConfig,
     pub username: String,
     pub password: String,
 }
 
 impl ClientConfig {
-    pub fn new(kind: ClientConfigKind, username: String, password: String) -> Self {
+    pub fn new(kind: EndpointConfig, username: String, password: String) -> Self {
         Self {
             kind,
             username,
@@ -59,7 +61,7 @@ impl ClientConfig {
 }
 
 #[derive(Debug)]
-pub enum ClientConfigKind {
+pub enum EndpointConfig {
     Tcp(String, u16),
     Tls(String, u16, String),
 }
@@ -73,15 +75,15 @@ pub enum Task {
 
 enum TaskInner {
     HelpMsg(String),
-    OpenShell(HashMap<String, String>),
+    OpenShell(CliCommandData<SingleOption>),
 }
 
 fn load_env() -> CliResult<TaskInner> {
-    let action = libsky::parse_cli_args_disallow_duplicate()?;
+    let action = CliCommand::<SingleOption>::from_cli()?;
     match action {
-        CliAction::Help => Ok(TaskInner::HelpMsg(TXT_HELP.into())),
-        CliAction::Version => Ok(TaskInner::HelpMsg(libsky::version_msg("skysh"))),
-        CliAction::Action(a) => Ok(TaskInner::OpenShell(a)),
+        CliCommand::Help(_) => Ok(TaskInner::HelpMsg(TXT_HELP.to_string())),
+        CliCommand::Version(_) => Ok(TaskInner::HelpMsg(libsky::version_msg("skysh"))),
+        CliCommand::Run(a) => Ok(TaskInner::OpenShell(a)),
     }
 }
 
@@ -90,18 +92,22 @@ pub fn parse() -> CliResult<Task> {
         TaskInner::HelpMsg(msg) => return Ok(Task::HelpMessage(msg)),
         TaskInner::OpenShell(args) => args,
     };
-    let endpoint = match args.remove("--endpoint") {
-        None => ClientConfigKind::Tcp("127.0.0.1".into(), 2003),
+    let endpoint = match args.take_option("endpoint")? {
+        None => EndpointConfig::Tcp("127.0.0.1".to_string(), 2003),
         Some(ep) => {
             // should be in the format protocol@host:port
             let proto_host_port: Vec<&str> = ep.split("@").collect();
             if proto_host_port.len() != 2 {
-                return Err(CliError::ArgsErr("invalid value for --endpoint".into()));
+                return Err(CliError::ArgsErr(
+                    "invalid value for --endpoint".to_string(),
+                ));
             }
             let (protocol, host_port) = (proto_host_port[0], proto_host_port[1]);
             let host_port: Vec<&str> = host_port.split(":").collect();
             if host_port.len() != 2 {
-                return Err(CliError::ArgsErr("invalid value for --endpoint".into()));
+                return Err(CliError::ArgsErr(
+                    "invalid value for --endpoint".to_string(),
+                ));
             }
             let (host, port) = (host_port[0], host_port[1]);
             let port = match port.parse::<u16>() {
@@ -112,18 +118,18 @@ pub fn parse() -> CliResult<Task> {
                     )))
                 }
             };
-            let tls_cert = args.remove("--tls-cert");
+            let tls_cert = args.take_option("tls-cert")?;
             match protocol {
                 "tcp" => {
                     // TODO(@ohsayan): warn!
-                    ClientConfigKind::Tcp(host.into(), port)
+                    EndpointConfig::Tcp(host.to_string(), port)
                 }
                 "tls" => {
                     // we need a TLS cert
                     match tls_cert {
                         Some(path) => {
                             let cert = fs::read_to_string(path)?;
-                            ClientConfigKind::Tls(host.into(), port, cert)
+                            EndpointConfig::Tls(host.to_string(), port, cert)
                         }
                         None => {
                             return Err(CliError::ArgsErr(format!(
@@ -140,14 +146,14 @@ pub fn parse() -> CliResult<Task> {
             }
         }
     };
-    let username = match args.remove("--user") {
+    let username = match args.take_option("user")? {
         Some(u) => u,
         None => {
             // default
-            "root".into()
+            "root".to_string()
         }
     };
-    let password = match args.remove("--password") {
+    let password = match args.take_option("password")? {
         Some(p) => check_password(p, "cli arguments")?,
         None => {
             // let us check the environment variable to see if anything was set
@@ -157,15 +163,15 @@ pub fn parse() -> CliResult<Task> {
             }
         }
     };
-    let eval = args.remove("--eval").or_else(|| args.remove("-e"));
-    if args.is_empty() {
-        let client = ClientConfig::new(endpoint, username, password);
-        match eval {
-            Some(query) => Ok(Task::ExecOnce(client, query)),
-            None => Ok(Task::OpenShell(client)),
-        }
-    } else {
-        Err(CliError::ArgsErr(format!("found unknown arguments")))
+    let eval = match args.take_option("eval")? {
+        Some(v) => Some(v),
+        None => args.take_option("e")?,
+    };
+    args.ensure_empty()?;
+    let client = ClientConfig::new(endpoint, username, password);
+    match eval {
+        Some(query) => Ok(Task::ExecOnce(client, query)),
+        None => Ok(Task::OpenShell(client)),
     }
 }
 

@@ -28,6 +28,7 @@ use crate::{
     engine::config::{
         self, AuthDriver, CLIConfigParseReturn, ConfigAuth, ConfigEndpoint, ConfigEndpointTcp,
         ConfigEndpointTls, ConfigMode, ConfigReturn, ConfigSystem, Configuration, ParsedRawArgs,
+        TXT_HELP,
     },
     util::test_utils::with_files,
 };
@@ -60,8 +61,8 @@ fn parse_cli_args_simple() {
     let payload = "skyd --mode dev --endpoint tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
     let expected: ParsedRawArgs = into_dict! {
-        "--mode" => vec!["dev".into()],
-        "--endpoint" => vec!["tcp@localhost:2003".into()]
+        "mode" => vec!["dev".into()],
+        "endpoint" => vec!["tcp@localhost:2003".into()]
     };
     assert_eq!(cfg, expected);
 }
@@ -70,8 +71,8 @@ fn parse_cli_args_packed() {
     let payload = "skyd --mode=dev --endpoint=tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
     let expected: ParsedRawArgs = into_dict! {
-        "--mode" => vec!["dev".into()],
-        "--endpoint" => vec!["tcp@localhost:2003".into()]
+        "mode" => vec!["dev".into()],
+        "endpoint" => vec!["tcp@localhost:2003".into()]
     };
     assert_eq!(cfg, expected);
 }
@@ -80,8 +81,8 @@ fn parse_cli_args_multi() {
     let payload = "skyd --mode=dev --endpoint tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
     let expected: ParsedRawArgs = into_dict! {
-        "--mode" => vec!["dev".into()],
-        "--endpoint" => vec!["tcp@localhost:2003".into()]
+        "mode" => vec!["dev".into()],
+        "endpoint" => vec!["tcp@localhost:2003".into()]
     };
     assert_eq!(cfg, expected);
 }
@@ -136,7 +137,7 @@ fn parse_validate_cli_args_help_and_version() {
     let pl2 = "skyd --version";
     let ret1 = extract_cli_args_raw(pl1);
     let ret2 = extract_cli_args_raw(pl2);
-    assert_eq!(ret1, CLIConfigParseReturn::Help);
+    assert_eq!(ret1, CLIConfigParseReturn::Help(TXT_HELP.to_owned()));
     assert_eq!(ret2, CLIConfigParseReturn::Version);
     config::set_cli_src(vec!["skyd".into(), "--help".into()]);
     let ret3 = config::check_configuration().unwrap();
@@ -150,7 +151,7 @@ fn parse_validate_cli_args_help_and_version() {
         ret4,
         ConfigReturn::HelpMessage(format!(
             "Skytable Database Server (skyd) v{}",
-            libsky::VERSION
+            libsky::variables::VERSION
         ))
     );
 }
@@ -203,6 +204,7 @@ fn parse_env_args_multi() {
     ];
     let expected_args = vars_to_args(&variables);
     config::set_env_src(variables.into());
+    config::set_cli_src(intovec!["skyd"]);
     let args = config::parse_env_args().unwrap().unwrap();
     assert_eq!(args, expected_args);
 }
@@ -226,6 +228,7 @@ fn parse_validate_env_args() {
                 format!("SKYDB_SERVICE_WINDOW=600"),
             ];
             config::set_env_src(variables.into());
+            config::set_cli_src(intovec!["skyd"]);
             let cfg = config::check_configuration().unwrap().into_config();
             assert_eq!(
                 cfg,

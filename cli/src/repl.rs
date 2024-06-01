@@ -53,7 +53,7 @@ fn repl<C: IsConnection>(mut con: C) -> CliResult<()> {
         match env::var_os(VAR_SKYSH_HISTORY_FILE_PATH).map(PathBuf::from) {
             Some(path) => path,
             None => {
-                let mut home_directory = libsky::get_home_dir()
+                let mut home_directory = libsky::utils::get_home_dir()
                     .ok_or(CliError::OtherError("could not find home directory"))?;
                 home_directory.push(SKYSH_HISTORY_FILE);
                 home_directory
