@@ -23,6 +23,9 @@ Options:
                                 current directory
 
 Flags:
+  --skip-compatibility-check    This flag is to be used when the current data is
+                                corrupted and hence cannot be used to verify
+                                compatibility information
   --allow-incompatible          (unsafe) Even if the destination data uses an
                                 unsupported driver version continue to restore
   --allow-different-host        (unsafe) Even if this backup is from a different

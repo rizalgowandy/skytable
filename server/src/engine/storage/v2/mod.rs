@@ -279,21 +279,21 @@ pub fn repair() -> RuntimeResult<()> {
 }
 
 fn full_backup(name: &str, context: BackupContext) -> RuntimeResult<()> {
-    _full_backup(name, true, context, None)
+    _full_backup(
+        &format!("backups/{}-{name}", util::time_now_string()),
+        true,
+        context,
+        None,
+    )
 }
 
 fn _full_backup(
-    name: &str,
-    standard_backup: bool,
+    backup_dir: &str,
+    create_backup_dir: bool,
     context: BackupContext,
     description: Option<String>,
 ) -> RuntimeResult<()> {
-    let backup_dir = if standard_backup {
-        format!("backups/{}-{name}", util::time_now_string())
-    } else {
-        format!("{name}")
-    };
-    if standard_backup {
+    if create_backup_dir {
         context::set_dmsg("creating backup directory");
         FileSystem::create_dir_all(&backup_dir)?;
     }
@@ -409,24 +409,40 @@ pub fn backup(settings: BackupSettings) -> RuntimeResult<()> {
 */
 
 pub fn restore(settings: RestoreSettings) -> RuntimeResult<()> {
-    context::set_dmsg("loading metadata from current installation");
-    let real_md = SdssFile::<SystemDatabaseV1>::open(
-        if let Some(path) = settings.to.as_deref() {
-            pathbuf!(path, GNS_PATH)
-        } else {
-            pathbuf!(GNS_PATH)
-        }
-        .to_str()
-        .unwrap(),
-        true,
-        false,
-    )?
-    .into_meta();
     context::set_dmsg("opening backup manifest");
     let (backup_manifest, backup_md) =
         BackupManifest::open(&format!("{}/{BACKUP_MANIFEST_FILE}", &settings.from))?;
     let this_host_name = &os::get_hostname();
     // verify if this backup should be restored
+    if !settings.flag_skip_compatibility_check {
+        // the compat check is not skipped which means that we can assume that the GNS is readable
+        context::set_dmsg("loading metadata from current installation");
+        let real_md = SdssFile::<SystemDatabaseV1>::open(
+            if let Some(path) = settings.to.as_deref() {
+                pathbuf!(path, GNS_PATH)
+            } else {
+                pathbuf!(GNS_PATH)
+            }
+            .to_str()
+            .unwrap(),
+            true,
+            false,
+        )?
+        .into_meta();
+        if real_md.driver_version() != backup_md.driver_version()
+            || real_md.server_version() != backup_md.server_version()
+            || real_md.header_version() != backup_md.header_version()
+        {
+            if settings.flag_allow_incompatible {
+                warn!("incompatible backup detected, but incompatible restore is enabled")
+            } else {
+                context::set_dmsg(
+                    "incompatible backup detected, but incompatible restore is enabled",
+                );
+                return Err(StorageError::RuntimeRestoreValidationFailure.into());
+            }
+        }
+    }
     if backup_manifest.hostname() != this_host_name.as_str() {
         if settings.flag_allow_different_host {
             warn!(
@@ -456,17 +472,6 @@ pub fn restore(settings: RestoreSettings) -> RuntimeResult<()> {
             return Err(StorageError::RuntimeRestoreValidationFailure.into());
         }
     }
-    if real_md.driver_version() != backup_md.driver_version()
-        || real_md.server_version() != backup_md.server_version()
-        || real_md.header_version() != backup_md.header_version()
-    {
-        if settings.flag_allow_incompatible {
-            warn!("incompatible backup detected, but incompatible restore is enabled")
-        } else {
-            context::set_dmsg("incompatible backup detected, but incompatible restore is enabled");
-            return Err(StorageError::RuntimeRestoreValidationFailure.into());
-        }
-    }
     // output backup information
     let mut backup_info_fmt = format!(
         "this backup was created {}",
@@ -492,16 +497,17 @@ pub fn restore(settings: RestoreSettings) -> RuntimeResult<()> {
         .unwrap(),
     )?;
     // restore data dir
+    let data_dir_path = if let Some(to) = settings.to.as_deref() {
+        pathbuf!(to, DATA_DIR)
+    } else {
+        pathbuf!(DATA_DIR)
+    };
+    context::set_dmsg("creating data directory"); // if data dir is absent (can be if some data loss happened), create it
+    FileSystem::create_dir(&data_dir_path)?;
     context::set_dmsg("restoring data directory");
     FileSystem::copy_directory(
         pathbuf!(&settings.from, DATA_DIR).to_str().unwrap(),
-        if let Some(to) = settings.to.as_deref() {
-            pathbuf!(to, DATA_DIR)
-        } else {
-            pathbuf!(DATA_DIR)
-        }
-        .to_str()
-        .unwrap(),
+        data_dir_path.to_str().unwrap(),
     )?;
     if settings.flag_delete_on_restore_completion {
         context::set_dmsg("removing backup directory that was recently restored");

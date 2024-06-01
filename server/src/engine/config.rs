@@ -234,6 +234,7 @@ pub struct RestoreSettings {
     pub flag_allow_different_host: bool,
     pub flag_allow_invalid_date: bool,
     pub flag_delete_on_restore_completion: bool,
+    pub flag_skip_compatibility_check: bool,
 }
 
 impl RestoreSettings {
@@ -244,6 +245,7 @@ impl RestoreSettings {
         flag_allow_different_host: bool,
         flag_allow_invalid_date: bool,
         flag_delete_on_restore_completion: bool,
+        flag_skip_compatibility_check: bool,
     ) -> Self {
         Self {
             from,
@@ -252,6 +254,7 @@ impl RestoreSettings {
             flag_allow_different_host,
             flag_allow_invalid_date,
             flag_delete_on_restore_completion,
+            flag_skip_compatibility_check,
         }
     }
 }
@@ -840,6 +843,9 @@ pub fn parse_cli_args<'a, T: ArgItem>(
                             subcommand.settings_mut().take_flag("allow-invalid-date")?;
                         let flag_delete_on_restore =
                             subcommand.settings_mut().take_flag("delete-on-restore")?;
+                        let flag_skip_compatibility_check = subcommand
+                            .settings_mut()
+                            .take_flag("skip-compatibility-check")?;
                         subcommand.settings().ensure_empty()?;
                         CLIConfigParseReturn::Restore(RestoreSettings::new(
                             restore_from,
@@ -848,6 +854,7 @@ pub fn parse_cli_args<'a, T: ArgItem>(
                             flag_allow_different_host,
                             flag_allow_invalid_date,
                             flag_delete_on_restore,
+                            flag_skip_compatibility_check,
                         ))
                     }
                     _ => {
