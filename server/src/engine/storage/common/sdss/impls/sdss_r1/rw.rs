@@ -41,7 +41,7 @@ use {
         IoResult,
     },
     core::fmt,
-    std::mem,
+    std::{mem, path::Path},
 };
 
 /*
@@ -62,17 +62,23 @@ impl<S: FileSpecV1, F> SdssFile<S, F> {
 }
 
 impl<S: FileSpecV1> SdssFile<S> {
-    /// Open an existing SDSS based file (with no validation arguments)
-    pub fn open(path: &str) -> RuntimeResult<Self>
+    pub fn open(path: impl AsRef<Path>, read: bool, write: bool) -> RuntimeResult<Self>
     where
         S: FileSpecV1<DecodeArgs = ()>,
     {
-        let mut f = File::open(path)?;
+        let mut f = File::open_with_options(path, read, write)?;
         let md = S::read_metadata(&mut f, ())?;
         Ok(Self::new(f, md))
     }
+    /// Open an existing SDSS based file (with no validation arguments)
+    pub fn open_rw(path: impl AsRef<Path>) -> RuntimeResult<Self>
+    where
+        S: FileSpecV1<DecodeArgs = ()>,
+    {
+        Self::open(path, true, true)
+    }
     /// Create a new SDSS based file (with no initialization arguments)
-    pub fn create(path: &str) -> RuntimeResult<Self>
+    pub fn create(path: impl AsRef<Path>) -> RuntimeResult<Self>
     where
         S: FileSpecV1<EncodeArgs = ()>,
     {
@@ -87,6 +93,9 @@ impl<S: FileSpecV1> SdssFile<S> {
     }
     pub fn downgrade_reader(SdssFile { file, meta }: SdssFile<S, BufferedReader>) -> Self {
         Self::new(file.into_inner(), meta)
+    }
+    pub fn into_meta(self) -> S::Metadata {
+        self.meta
     }
 }
 

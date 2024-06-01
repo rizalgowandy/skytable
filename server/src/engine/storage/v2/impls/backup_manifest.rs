@@ -30,7 +30,10 @@ use {
             mem::BufferedScanner,
             storage::{
                 common::{
-                    sdss::{self, sdss_r1::rw::SdssFile},
+                    sdss::{
+                        self,
+                        sdss_r1::{rw::SdssFile, FileSpecV1},
+                    },
                     versions::FileSpecifierVersion,
                 },
                 common_encoding::r1::{dec, enc, PersistObject},
@@ -40,7 +43,7 @@ use {
         util::{compiler::TaggedEnum, os},
     },
     chrono::{NaiveDateTime, Utc},
-    std::{marker::PhantomData, str},
+    std::{marker::PhantomData, path::Path, str},
 };
 
 pub struct BackupManifestV1;
@@ -162,7 +165,7 @@ pub struct BackupManifest {
 
 impl BackupManifest {
     pub fn create(
-        path: &str,
+        path: impl AsRef<Path>,
         context: BackupContext,
         description: Option<String>,
     ) -> RuntimeResult<()> {
@@ -172,10 +175,13 @@ impl BackupManifest {
         file.fsync_all()?;
         Ok(())
     }
-    pub fn open(path: &str) -> RuntimeResult<Self> {
-        let mut f = SdssFile::<BackupManifestV1>::open(path)?;
+    pub fn open(
+        path: impl AsRef<Path>,
+    ) -> RuntimeResult<(Self, <BackupManifestV1 as FileSpecV1>::Metadata)> {
+        let mut f = SdssFile::<BackupManifestV1>::open_rw(path)?;
         let manifest_payload = f.read_full()?;
-        dec::full::<BackupManifestStorage>(&manifest_payload)
+        let meta = f.into_meta();
+        dec::full::<BackupManifestStorage>(&manifest_payload).map(|bm| (bm, meta))
     }
     fn generate(context: BackupContext, description: Option<String>) -> Vec<u8> {
         let date = Utc::now().format("%Y%m%d%H%M%S").to_string();

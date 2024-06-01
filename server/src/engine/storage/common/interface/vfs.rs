@@ -319,10 +319,15 @@ impl VirtualFS {
             }
         }
     }
-    pub fn fs_fopen_rw(&mut self, fpath: &str) -> IoResult<VFileDescriptor> {
+    pub fn fs_fopen_rw(
+        &mut self,
+        fpath: &str,
+        read: bool,
+        write: bool,
+    ) -> IoResult<VFileDescriptor> {
         self.with_file_mut(fpath, |f| {
-            f.read = true;
-            f.write = true;
+            f.read = read;
+            f.write = write;
             Ok(VFileDescriptor(fpath.into()))
         })
     }

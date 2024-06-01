@@ -42,7 +42,7 @@ use {
             error::StorageError,
             fractal::{context, FractalGNSDriver},
             storage::{
-                common::{interface::fs::FileSystem, paths_v1},
+                common::{interface::fs::FileSystem, paths_v1, sdss::sdss_r1::rw::SdssFile},
                 v1,
                 v2::{
                     impls::{gns_log::GNSAdapter, mdl_journal::ModelAdapter},
@@ -63,6 +63,8 @@ use {
         gns_log::GNSDriver,
         mdl_journal::ModelDriver,
     },
+    raw::spec::SystemDatabaseV1,
+    std::path::Path,
 };
 
 pub(super) mod impls;
@@ -195,6 +197,11 @@ pub fn load(cfg: &Configuration) -> RuntimeResult<SELoaded> {
             gns.sys_db()
                 .__raw_alter_user(SystemDatabase::ROOT_ACCOUNT, phash.into_boxed_slice());
         }
+        // all done, so now verify presence of data directory
+        if !Path::new(DATA_DIR).is_dir() {
+            context::set_dmsg("data directory missing");
+            return Err(StorageError::RuntimeEngineLoadError.into());
+        }
         RuntimeResult::Ok(())
     };
     match initialize_drivers() {
@@ -292,14 +299,14 @@ fn _full_backup(
     }
     context::set_dmsg("creating backup manifest");
     BackupManifest::create(
-        &format!("{backup_dir}/{BACKUP_MANIFEST_FILE}"),
+        pathbuf!(&backup_dir, BACKUP_MANIFEST_FILE),
         context,
         description,
     )?;
     context::set_dmsg("backing up GNS");
-    FileSystem::copy(GNS_PATH, &format!("{backup_dir}/{GNS_PATH}"))?;
+    FileSystem::copy(GNS_PATH, pathbuf!(&backup_dir, GNS_PATH))?;
     context::set_dmsg("backing up data directory");
-    FileSystem::copy_directory(DATA_DIR, &format!("{backup_dir}/{DATA_DIR}"))?;
+    FileSystem::copy_directory(DATA_DIR, pathbuf!(&backup_dir, DATA_DIR))?;
     info!("All data backed up in {backup_dir}");
     Ok(())
 }
@@ -402,10 +409,24 @@ pub fn backup(settings: BackupSettings) -> RuntimeResult<()> {
 */
 
 pub fn restore(settings: RestoreSettings) -> RuntimeResult<()> {
+    context::set_dmsg("loading metadata from current installation");
+    let real_md = SdssFile::<SystemDatabaseV1>::open(
+        if let Some(path) = settings.to.as_deref() {
+            pathbuf!(path, GNS_PATH)
+        } else {
+            pathbuf!(GNS_PATH)
+        }
+        .to_str()
+        .unwrap(),
+        true,
+        false,
+    )?
+    .into_meta();
     context::set_dmsg("opening backup manifest");
-    let backup_manifest =
+    let (backup_manifest, backup_md) =
         BackupManifest::open(&format!("{}/{BACKUP_MANIFEST_FILE}", &settings.from))?;
     let this_host_name = &os::get_hostname();
+    // verify if this backup should be restored
     if backup_manifest.hostname() != this_host_name.as_str() {
         if settings.flag_allow_different_host {
             warn!(
@@ -432,6 +453,17 @@ pub fn restore(settings: RestoreSettings) -> RuntimeResult<()> {
                 "the date of this backup is in the future ({})",
                 backup_manifest.date()
             ));
+            return Err(StorageError::RuntimeRestoreValidationFailure.into());
+        }
+    }
+    if real_md.driver_version() != backup_md.driver_version()
+        || real_md.server_version() != backup_md.server_version()
+        || real_md.header_version() != backup_md.header_version()
+    {
+        if settings.flag_allow_incompatible {
+            warn!("incompatible backup detected, but incompatible restore is enabled")
+        } else {
+            context::set_dmsg("incompatible backup detected, but incompatible restore is enabled");
             return Err(StorageError::RuntimeRestoreValidationFailure.into());
         }
     }

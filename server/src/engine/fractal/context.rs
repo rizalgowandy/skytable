@@ -41,9 +41,9 @@ impl Subsystem {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Init => "init system",
-            Self::Storage => "storage error",
-            Self::Database => "engine error",
-            Self::Network => "network error",
+            Self::Storage => "storage engine",
+            Self::Database => "db engine",
+            Self::Network => "network layer",
         }
     }
 }

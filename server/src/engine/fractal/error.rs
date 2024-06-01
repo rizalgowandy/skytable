@@ -95,7 +95,7 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.origin {
-            Some(orig) => write!(f, "{} error: ", orig.as_str()),
+            Some(orig) => write!(f, "{} failure: ", orig.as_str()),
             None => write!(f, "runtime error: "),
         }?;
         match self.dmsg.as_ref() {

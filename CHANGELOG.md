@@ -6,6 +6,9 @@ All changes in this project will be noted in this file.
 
 ### Additions
 
+- Server:
+  - Added the `backup` subcommand to create unattended manifest-based backups
+  - Added the `restore` subcommand to enable unattended restore for manifest-based backups
 - Benchmark tool:
   - Supports *full spectrum latency analysis* and offers advanced insight into executed queries:
     - Latency distributions
@@ -15,6 +18,9 @@ All changes in this project will be noted in this file.
 
 ### Fixes
 
+- Server:
+  - Fixed error messages
+  - Fixed a bug where an empty GNS won't detect a missing data directory which could cause issues with DDL transactions
 - Benchmark tool:
   - Running a SIGINT now gracefully terminates the workload
 

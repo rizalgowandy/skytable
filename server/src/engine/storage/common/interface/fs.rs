@@ -30,15 +30,14 @@
     file system
 */
 
-use crate::util;
-
 #[cfg(test)]
 use super::vfs::{VFileDescriptor, VirtualFS};
 use {
-    crate::IoResult,
+    crate::{util, IoResult},
     std::{
         fs as std_fs,
         io::{BufReader, BufWriter, Error, ErrorKind, Read, Seek, SeekFrom, Write},
+        path::Path,
     },
 };
 
@@ -87,100 +86,139 @@ impl Drop for FileSystem {
 
 impl FileSystem {
     #[inline(always)]
-    pub fn copy_directory(from: &str, to: &str) -> IoResult<()> {
+    pub fn copy_directory(from: impl AsRef<Path>, to: impl AsRef<Path>) -> IoResult<()> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().write().fs_copy(from, to),
+                FSContext::Virtual => {
+                    return VirtualFS::instance().write().fs_copy(
+                        from.as_ref().to_str().unwrap(),
+                        to.as_ref().to_str().unwrap(),
+                    )
+                }
             }
         }
         util::os::recursive_copy(from, to)
     }
     #[inline(always)]
-    pub fn copy(from: &str, to: &str) -> IoResult<()> {
+    pub fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> IoResult<()> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().write().fs_copy(from, to),
+                FSContext::Virtual => {
+                    return VirtualFS::instance().write().fs_copy(
+                        from.as_ref().to_str().unwrap(),
+                        to.as_ref().to_str().unwrap(),
+                    )
+                }
             }
         }
         std_fs::copy(from, to).map(|_| ())
     }
     #[inline(always)]
-    pub fn read(path: &str) -> IoResult<Vec<u8>> {
+    pub fn read(path: impl AsRef<Path>) -> IoResult<Vec<u8>> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().read().get_data(path),
+                FSContext::Virtual => {
+                    return VirtualFS::instance()
+                        .read()
+                        .get_data(path.as_ref().to_str().unwrap())
+                }
             }
         }
         std_fs::read(path)
     }
     #[inline(always)]
-    pub fn create_dir(path: &str) -> IoResult<()> {
+    pub fn create_dir(path: impl AsRef<Path>) -> IoResult<()> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().write().fs_create_dir(path),
+                FSContext::Virtual => {
+                    return VirtualFS::instance()
+                        .write()
+                        .fs_create_dir(path.as_ref().to_str().unwrap())
+                }
             }
         }
         std_fs::create_dir(path)
     }
     #[inline(always)]
-    pub fn create_dir_all(path: &str) -> IoResult<()> {
+    pub fn create_dir_all(path: impl AsRef<Path>) -> IoResult<()> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().write().fs_create_dir_all(path),
+                FSContext::Virtual => {
+                    return VirtualFS::instance()
+                        .write()
+                        .fs_create_dir_all(path.as_ref().to_str().unwrap())
+                }
             }
         }
         std_fs::create_dir_all(path)
     }
     #[inline(always)]
-    pub fn remove_dir(path: &str) -> IoResult<()> {
+    pub fn remove_dir(path: impl AsRef<Path>) -> IoResult<()> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().write().fs_delete_dir(path),
+                FSContext::Virtual => {
+                    return VirtualFS::instance()
+                        .write()
+                        .fs_delete_dir(path.as_ref().to_str().unwrap())
+                }
             }
         }
         std_fs::remove_dir(path)
     }
     #[inline(always)]
-    pub fn remove_dir_all(path: &str) -> IoResult<()> {
+    pub fn remove_dir_all(path: impl AsRef<Path>) -> IoResult<()> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().write().fs_delete_dir_all(path),
+                FSContext::Virtual => {
+                    return VirtualFS::instance()
+                        .write()
+                        .fs_delete_dir_all(path.as_ref().to_str().unwrap())
+                }
             }
         }
         std_fs::remove_dir_all(path)
     }
     #[inline(always)]
-    pub fn remove_file(path: &str) -> IoResult<()> {
+    pub fn remove_file(path: impl AsRef<Path>) -> IoResult<()> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().write().fs_remove_file(path),
+                FSContext::Virtual => {
+                    return VirtualFS::instance()
+                        .write()
+                        .fs_remove_file(path.as_ref().to_str().unwrap())
+                }
             }
         }
         std_fs::remove_file(path)
     }
     #[inline(always)]
-    pub fn rename(from: &str, to: &str) -> IoResult<()> {
+    pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> IoResult<()> {
         #[cfg(test)]
         {
             match Self::context() {
                 FSContext::Local => {}
-                FSContext::Virtual => return VirtualFS::instance().write().fs_rename(from, to),
+                FSContext::Virtual => {
+                    return VirtualFS::instance().write().fs_rename(
+                        from.as_ref().to_str().unwrap(),
+                        to.as_ref().to_str().unwrap(),
+                    )
+                }
             }
         }
         std_fs::rename(from, to)
@@ -443,7 +481,7 @@ pub struct File {
 }
 
 impl File {
-    pub fn open(path: &str) -> IoResult<Self> {
+    pub fn open_with_options(path: impl AsRef<Path>, read: bool, write: bool) -> IoResult<Self> {
         #[cfg(test)]
         {
             match FileSystem::context() {
@@ -451,14 +489,14 @@ impl File {
                 FSContext::Virtual => {
                     return VirtualFS::instance()
                         .write()
-                        .fs_fopen_rw(path)
+                        .fs_fopen_rw(path.as_ref().to_str().unwrap(), read, write)
                         .map(|f| Self {
                             f: AnyFile::Virtual(f),
                         })
                 }
             }
         }
-        let file = std_fs::File::options().read(true).write(true).open(path)?;
+        let file = std_fs::File::options().read(read).write(write).open(path)?;
         Ok(Self {
             #[cfg(test)]
             f: AnyFile::Local(file),
@@ -466,7 +504,10 @@ impl File {
             f: file,
         })
     }
-    pub fn create(path: &str) -> IoResult<Self> {
+    pub fn open_rw(path: impl AsRef<Path>) -> IoResult<Self> {
+        Self::open_with_options(path, true, true)
+    }
+    pub fn create(path: impl AsRef<Path>) -> IoResult<Self> {
         #[cfg(test)]
         {
             match FileSystem::context() {
@@ -474,7 +515,7 @@ impl File {
                 FSContext::Virtual => {
                     return VirtualFS::instance()
                         .write()
-                        .fs_fcreate_rw(path)
+                        .fs_fcreate_rw(path.as_ref().to_str().unwrap())
                         .map(|f| Self {
                             f: AnyFile::Virtual(f),
                         })

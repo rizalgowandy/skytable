@@ -346,7 +346,6 @@ impl<H: HeaderV1Spec> HeaderV1<H> {
     }
 }
 
-#[allow(unused)]
 impl<H: HeaderV1Spec> HeaderV1<H> {
     pub fn header_version(&self) -> HeaderVersion {
         self.magic_header_version
@@ -357,6 +356,19 @@ impl<H: HeaderV1Spec> HeaderV1<H> {
     pub fn driver_version(&self) -> DriverVersion {
         self.genesis_static_sw_driver_version
     }
+    pub fn file_class(&self) -> H::FileClass {
+        self.genesis_static_file_class
+    }
+    pub fn file_specifier(&self) -> H::FileSpecifier {
+        self.genesis_static_file_specifier
+    }
+    pub fn file_specifier_version(&self) -> FileSpecifierVersion {
+        self.genesis_static_file_specifier_version
+    }
+}
+
+#[allow(unused)]
+impl<H: HeaderV1Spec> HeaderV1<H> {
     pub fn host_os(&self) -> HostOS {
         self.genesis_static_host_os
     }
@@ -368,15 +380,6 @@ impl<H: HeaderV1Spec> HeaderV1<H> {
     }
     pub fn host_endian(&self) -> HostEndian {
         self.genesis_static_host_endian
-    }
-    pub fn file_class(&self) -> H::FileClass {
-        self.genesis_static_file_class
-    }
-    pub fn file_specifier(&self) -> H::FileSpecifier {
-        self.genesis_static_file_specifier
-    }
-    pub fn file_specifier_version(&self) -> FileSpecifierVersion {
-        self.genesis_static_file_specifier_version
     }
     pub fn epoch_time(&self) -> u128 {
         self.genesis_runtime_epoch_time
