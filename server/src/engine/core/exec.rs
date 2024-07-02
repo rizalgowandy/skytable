@@ -131,13 +131,14 @@ async fn run_blocking_stmt(
     let a_m = (alter & Token![model].eq(a) & last_id) as u8 * 5;
     let d_s = (drop & Token![space].eq(a) & (last_id | last_allow | last_if)) as u8 * 6;
     let d_m = (drop & Token![model].eq(a) & (last_id | last_allow | last_if)) as u8 * 7;
-    let fc = sysctl as u8 | c_s | c_m | a_s | a_m | d_s | d_m;
-    state.cursor_ahead_if(!sysctl);
+    let t_a = (stmt == KeywordStmt::Truncate) as u8 * 8;
+    let fc = sysctl as u8 | c_s | c_m | a_s | a_m | d_s | d_m | t_a;
+    state.cursor_ahead_if(!(sysctl | (stmt == KeywordStmt::Truncate)));
     static BLK_EXEC: [fn(
         Global,
         &ClientLocalState,
         &mut State<'static, InplaceData>,
-    ) -> QueryResult<Response>; 8] = [
+    ) -> QueryResult<Response>; 9] = [
         |_, _, _| Err(QueryError::QLUnknownStatement),
         blocking_exec_sysctl,
         |g, _, t| {
@@ -171,6 +172,7 @@ async fn run_blocking_stmt(
                 translate_ddl_result,
             )
         },
+        |g, _, t| _callgs_map(&g, t, dml::truncate, |_| Response::Empty),
     ];
     let r = unsafe {
         // UNSAFE(@ohsayan): the only await is within this block
@@ -245,7 +247,7 @@ fn run_nb(
     mut state: State<'_, InplaceData>,
     stmt: KeywordStmt,
 ) -> QueryResult<Response> {
-    let stmt_c = stmt.value_u8() - KeywordStmt::Use.value_u8();
+    let stmt_c = stmt.raw_code() - KeywordStmt::Use.raw_code();
     static F: [fn(
         &Global,
         &mut ClientLocalState,

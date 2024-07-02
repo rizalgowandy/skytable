@@ -34,7 +34,9 @@ use crate::{
         core::model::ModelData,
         data::{lit::Lit, tag::DataTag},
         error::{QueryError, QueryResult},
-        ql::dml::WhereClause,
+        fractal::GlobalInstanceLike,
+        ql::dml::{trunc::TruncateStmt, WhereClause},
+        storage::{BatchStats, Truncate},
     },
     util::compiler,
 };
@@ -84,5 +86,36 @@ impl QueryExecMeta {
     }
     pub fn delta_hint(&self) -> usize {
         self.delta_hint
+    }
+}
+
+pub fn truncate(g: &impl GlobalInstanceLike, stmt: TruncateStmt) -> QueryResult<()> {
+    match stmt {
+        TruncateStmt::Model(mdl_id) => {
+            g.state()
+                .namespace()
+                .with_full_model_for_ddl(mdl_id, |_, mdl| {
+                    /*
+                        1. get model driver, commit truncate
+                        2. wipe delta state
+                        3. increment runtime id
+                        4. done
+                    */
+                    // commit truncate
+                    {
+                        let mut drv = mdl.driver().batch_driver().lock();
+                        drv.as_mut()
+                            .unwrap()
+                            .commit_with_ctx(Truncate, BatchStats::new())?;
+                        // good now clear delta state
+                    }
+                    // reset delta state
+                    mdl.data_mut().delta_state_mut().__reset();
+                    // increment runtime ID to invalidate previously queued tasks
+                    mdl.data_mut().increment_runtime_id();
+                    // done
+                    Ok(())
+                })
+        }
     }
 }

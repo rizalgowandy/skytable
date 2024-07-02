@@ -1004,3 +1004,30 @@ mod select_all {
         );
     }
 }
+
+mod truncate {
+    use {
+        super::lex_insecure,
+        crate::engine::{
+            core::EntityIDRef,
+            ql::{
+                ast::{parse_ast_node_full, parse_ast_node_full_with_space},
+                dml::trunc::TruncateStmt,
+            },
+        },
+    };
+
+    #[test]
+    fn truncate_model() {
+        let tok = lex_insecure(b"truncate model myspace.mymodel").unwrap();
+        assert_eq!(
+            parse_ast_node_full::<TruncateStmt>(&tok[1..]).unwrap(),
+            TruncateStmt::Model(EntityIDRef::new("myspace", "mymodel"))
+        );
+        let tok = lex_insecure(b"truncate model mymodel").unwrap();
+        assert_eq!(
+            parse_ast_node_full_with_space::<TruncateStmt>(&tok[1..], "otherspace").unwrap(),
+            TruncateStmt::Model(EntityIDRef::new("otherspace", "mymodel"))
+        );
+    }
+}

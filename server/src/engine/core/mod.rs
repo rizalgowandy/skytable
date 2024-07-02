@@ -128,6 +128,18 @@ impl GNSData {
         };
         f(space)
     }
+    pub fn with_full_model_for_ddl<'a, T, F>(&self, entity: EntityIDRef<'a>, f: F) -> QueryResult<T>
+    where
+        F: FnOnce(&Space, &mut Model) -> QueryResult<T>,
+    {
+        let mut mdl_idx = self.idx_mdl.write();
+        let Some(model) = mdl_idx.get_mut(&entity) else {
+            return Err(QueryError::QExecObjectNotFound);
+        };
+        let space_read = self.idx.read();
+        let space = space_read.get(entity.space()).unwrap();
+        f(space, model)
+    }
     pub fn with_model_space_mut_for_ddl<'a, T, F>(
         &self,
         entity: EntityIDRef<'a>,
@@ -136,13 +148,7 @@ impl GNSData {
     where
         F: FnOnce(&Space, &mut ModelData) -> QueryResult<T>,
     {
-        let mut mdl_idx = self.idx_mdl.write();
-        let Some(model) = mdl_idx.get_mut(&entity) else {
-            return Err(QueryError::QExecObjectNotFound);
-        };
-        let space_read = self.idx.read();
-        let space = space_read.get(entity.space()).unwrap();
-        f(space, model.data_mut())
+        self.with_full_model_for_ddl(entity, |space, mdl| f(space, mdl.data_mut()))
     }
     pub fn with_model<'a, T, F>(&self, entity: EntityIDRef<'a>, f: F) -> QueryResult<T>
     where

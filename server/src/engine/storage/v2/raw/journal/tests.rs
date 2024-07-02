@@ -39,7 +39,7 @@ use {
             error::StorageError,
             mem::unsafe_apis,
             storage::{
-                common::sdss::sdss_r1::rw::{TrackedReaderContext, TrackedWriter},
+                common::sdss::sdss_r1::rw::{TrackedReader, TrackedReaderContext, TrackedWriter},
                 v2::raw::{
                     journal::raw::{create_journal, open_journal, RawJournalWriter},
                     spec::{ModelDataBatchAofV1, SystemDatabaseV1},
@@ -94,8 +94,8 @@ impl_test_event!(
 );
 
 impl<TE: IsTestEvent> RawJournalAdapterEvent<EventLogAdapter<TestDBAdapter>> for TE {
-    fn md(&self) -> u64 {
-        Self::EVCODE.dscr_u64()
+    fn md(&self) -> TestEvent {
+        Self::EVCODE
     }
     fn write_buffered(self, buf: &mut Vec<u8>, _: ()) {
         TE::encode(self, buf)
@@ -237,6 +237,7 @@ fn test_this_data() {
 #[repr(u8)]
 pub enum BatchType {
     GenericBatch = 0,
+    ClearAll = 1,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, TaggedEnum)]
@@ -277,6 +278,13 @@ impl BatchDB {
         }
         Ok(())
     }
+    fn clear(&self, driver: &mut BatchDriver<BatchDBAdapter>) -> RuntimeResult<()> {
+        let mut me = self._mut();
+        driver.commit_event(BatchDBClear(&me))?;
+        me.data.clear();
+        me.last_flushed_at = 0;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -287,8 +295,8 @@ struct BatchDBInner {
 
 struct BatchDBFlush<'a>(&'a BatchDBInner, usize);
 impl<'a> RawJournalAdapterEvent<BatchAdapter<BatchDBAdapter>> for BatchDBFlush<'a> {
-    fn md(&self) -> u64 {
-        BatchType::GenericBatch.dscr_u64()
+    fn md(&self) -> BatchType {
+        BatchType::GenericBatch
     }
     fn write_direct(
         self,
@@ -322,6 +330,23 @@ impl<'a> RawJournalAdapterEvent<BatchAdapter<BatchDBAdapter>> for BatchDBFlush<'
     }
 }
 
+/**
+ * Stored as [current_keys:8B]
+*/
+struct BatchDBClear<'a>(&'a BatchDBInner);
+impl<'a> RawJournalAdapterEvent<BatchAdapter<BatchDBAdapter>> for BatchDBClear<'a> {
+    fn md(&self) -> BatchType {
+        BatchType::ClearAll
+    }
+    fn write_direct(
+        self,
+        w: &mut TrackedWriter<<BatchAdapter<BatchDBAdapter> as super::RawJournalAdapter>::Spec>,
+        _: <BatchAdapter<BatchDBAdapter> as super::RawJournalAdapter>::CommitContext,
+    ) -> RuntimeResult<()> {
+        e!(w.dtrack_write(&(self.0.data.len() as u64).to_le_bytes()))
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct BatchContext {
     actual_write: usize,
@@ -331,12 +356,18 @@ pub struct BatchDBAdapter;
 impl BatchAdapterSpec for BatchDBAdapter {
     type Spec = ModelDataBatchAofV1;
     type GlobalState = BatchDB;
-    type BatchType = BatchType;
+    type BatchRootType = BatchType;
     type EventType = BatchEventType;
     type BatchMetadata = ();
     type CommitContext = Rc<RefCell<BatchContext>>;
     type BatchState = BatchState;
     type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn get_event_logic(md: &Self::BatchRootType) -> super::BatchEventExecutionLogic {
+        match md {
+            BatchType::GenericBatch => super::BatchEventExecutionLogic::General,
+            BatchType::ClearAll => super::BatchEventExecutionLogic::Custom,
+        }
+    }
     fn consolidate_batch<'a>(
         writer: &mut RawJournalWriter<BatchAdapter<Self>>,
         ctx: Self::FullSyncCtx<'a>,
@@ -355,7 +386,7 @@ impl BatchAdapterSpec for BatchDBAdapter {
     fn decode_batch_metadata(
         _: &Self::GlobalState,
         _: &mut TrackedReaderContext<Self::Spec>,
-        _: Self::BatchType,
+        _: Self::BatchRootType,
     ) -> RuntimeResult<Self::BatchMetadata> {
         Ok(())
     }
@@ -388,6 +419,26 @@ impl BatchAdapterSpec for BatchDBAdapter {
             gs._mut().last_flushed_at += 1;
         }
         Ok(())
+    }
+    fn decode_execute_custom(
+        gs: &Self::GlobalState,
+        f: &mut TrackedReader<Self::Spec>,
+        meta: Self::BatchRootType,
+    ) -> RuntimeResult<()> {
+        match meta {
+            BatchType::GenericBatch => unreachable!(),
+            BatchType::ClearAll => {
+                // see format: [number of present keys]
+                let present_keys_should_be = u64::from_le_bytes(f.read_block()?);
+                let mut gs = gs._mut();
+                if present_keys_should_be == gs.data.len() as u64 {
+                    gs.data.clear();
+                    Ok(())
+                } else {
+                    Err(StorageError::InternalDecodeStructureIllegalData.into())
+                }
+            }
+        }
     }
 }
 
@@ -430,6 +481,15 @@ fn batch_simple() {
             db._ref().data,
             ["key1", "key2", "key3", "key4", "key5", "key6"]
         );
+        db.clear(&mut batch_drv).unwrap();
+        BatchAdapter::close(&mut batch_drv).unwrap();
+    }
+    {
+        let db = BatchDB::new();
+        let (mut batch_drv, _) =
+            BatchAdapter::<BatchDBAdapter>::open("mybatch", &db, JournalSettings::default())
+                .unwrap();
+        assert!(db._ref().data.is_empty());
         BatchAdapter::close(&mut batch_drv).unwrap();
     }
 }

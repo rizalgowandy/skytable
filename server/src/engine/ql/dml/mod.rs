@@ -32,6 +32,7 @@
 pub mod del;
 pub mod ins;
 pub mod sel;
+pub mod trunc;
 pub mod upd;
 
 use {

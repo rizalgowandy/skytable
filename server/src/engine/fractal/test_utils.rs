@@ -164,18 +164,25 @@ impl GlobalInstanceLike for TestGlobal {
     }
     fn taskmgr_post_high_priority(&self, task: Task<CriticalTask>) {
         match task.into_task() {
-            CriticalTask::WriteBatch(mdl_id, count) => {
+            CriticalTask::WriteBatch {
+                model_id,
+                observed,
+                runtime_id,
+            } => {
                 let models = self.gns.namespace().idx_models().read();
                 let mdl = models
-                    .get(&EntityIDRef::new(mdl_id.space(), mdl_id.model()))
+                    .get(&EntityIDRef::new(model_id.space(), model_id.model()))
                     .unwrap();
+                if runtime_id != mdl.data().runtime_id() {
+                    return;
+                }
                 let mut mdl_driver = mdl.driver().batch_driver().lock();
                 self.model_net_commited_events
-                    .fetch_add(count, Ordering::Release);
+                    .fetch_add(observed, Ordering::Release);
                 mdl_driver
                     .as_mut()
                     .unwrap()
-                    .commit_with_ctx(StdModelBatch::new(mdl.data(), count), BatchStats::new())
+                    .commit_with_ctx(StdModelBatch::new(mdl.data(), observed), BatchStats::new())
                     .unwrap()
             }
             CriticalTask::TryModelAutorecover(_) => {}

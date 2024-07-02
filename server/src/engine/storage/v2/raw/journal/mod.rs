@@ -205,6 +205,12 @@ impl<BA: BatchAdapterSpec> BatchAdapter<BA> {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum BatchEventExecutionLogic {
+    General,
+    Custom,
+}
+
 /// A specification for a batch journal
 ///
 /// NB: This trait's impl is fairly complex and is going to require careful handling to get it right. Also, the event has to have
@@ -215,7 +221,7 @@ pub trait BatchAdapterSpec: Sized {
     /// global state used for syncing events
     type GlobalState;
     /// batch type tag
-    type BatchType: TaggedEnum<Dscr = u8>;
+    type BatchRootType: TaggedEnum<Dscr = u8>;
     /// event type tag (event in batch)
     type EventType: TaggedEnum<Dscr = u8> + PartialEq;
     /// custom batch metadata
@@ -225,6 +231,8 @@ pub trait BatchAdapterSpec: Sized {
     /// commit context
     type CommitContext;
     type FullSyncCtx<'a>;
+    /// get event execution logic
+    fn get_event_logic(md: &Self::BatchRootType) -> BatchEventExecutionLogic;
     /// return true if the given event tag indicates an early exit
     fn is_early_exit(event_type: &Self::EventType) -> bool;
     /// initialize the batch state
@@ -233,7 +241,7 @@ pub trait BatchAdapterSpec: Sized {
     fn decode_batch_metadata(
         gs: &Self::GlobalState,
         f: &mut TrackedReaderContext<Self::Spec>,
-        meta: Self::BatchType,
+        meta: Self::BatchRootType,
     ) -> RuntimeResult<Self::BatchMetadata>;
     /// decode new event and update state. if called, it is guaranteed that the event is not an early exit
     fn update_state_for_new_event(
@@ -256,28 +264,36 @@ pub trait BatchAdapterSpec: Sized {
         writer: &mut RawJournalWriter<BatchAdapter<Self>>,
         ctx: Self::FullSyncCtx<'a>,
     ) -> RuntimeResult<()>;
+    /// If an event falls outside the standard execution routine, then this is the entrypoint for any such execution
+    fn decode_execute_custom(
+        _gs: &Self::GlobalState,
+        _f: &mut TrackedReader<Self::Spec>,
+        _meta: Self::BatchRootType,
+    ) -> RuntimeResult<()> {
+        unimplemented!()
+    }
 }
 
-impl<BA: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<BA> {
+impl<Ba: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<Ba> {
     const COMMIT_PREFERENCE: CommitPreference = CommitPreference::Direct;
-    type Spec = <BA as BatchAdapterSpec>::Spec;
-    type GlobalState = <BA as BatchAdapterSpec>::GlobalState;
+    type Spec = <Ba as BatchAdapterSpec>::Spec;
+    type GlobalState = <Ba as BatchAdapterSpec>::GlobalState;
     type Context<'a> = () where Self: 'a;
-    type EventMeta = <BA as BatchAdapterSpec>::BatchType;
-    type CommitContext = <BA as BatchAdapterSpec>::CommitContext;
-    type FullSyncCtx<'a> = BA::FullSyncCtx<'a>;
+    type EventMeta = <Ba as BatchAdapterSpec>::BatchRootType;
+    type CommitContext = <Ba as BatchAdapterSpec>::CommitContext;
+    type FullSyncCtx<'a> = Ba::FullSyncCtx<'a>;
     fn rewrite_full_journal<'a>(
         writer: &mut RawJournalWriter<Self>,
         ctx: Self::FullSyncCtx<'a>,
     ) -> RuntimeResult<()> {
-        BA::consolidate_batch(writer, ctx)
+        Ba::consolidate_batch(writer, ctx)
     }
     fn initialize(_: &raw::JournalInitializer) -> Self {
         Self(PhantomData)
     }
     fn enter_context<'a>(_: &'a mut RawJournalWriter<Self>) -> Self::Context<'a> {}
     fn parse_event_meta(meta: u64) -> Option<Self::EventMeta> {
-        <<BA as BatchAdapterSpec>::BatchType as TaggedEnum>::try_from_raw(meta as u8)
+        <<Ba as BatchAdapterSpec>::BatchRootType as TaggedEnum>::try_from_raw(meta as u8)
     }
     fn commit_direct<'a, E>(
         &mut self,
@@ -288,9 +304,16 @@ impl<BA: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<BA> {
     where
         E: RawJournalAdapterEvent<Self>,
     {
-        ev.write_direct(w, ctx)?;
-        let checksum = w.reset_partial();
-        e!(w.tracked_write(&checksum.to_le_bytes()))
+        match Ba::get_event_logic(&ev.md()) {
+            // standard logic
+            BatchEventExecutionLogic::General => {
+                ev.write_direct(w, ctx)?;
+                let checksum = w.reset_partial();
+                e!(w.tracked_write(&checksum.to_le_bytes()))
+            }
+            // custom logic, pass directly to handler
+            BatchEventExecutionLogic::Custom => ev.write_direct(w, ctx),
+        }
     }
     fn decode_apply<'a>(
         gs: &Self::GlobalState,
@@ -298,55 +321,62 @@ impl<BA: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<BA> {
         f: &mut TrackedReader<Self::Spec>,
         heuristics: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
-        let mut f = f.context();
-        {
-            // get metadata
-            // read batch size
-            let _stored_expected_commit_size = u64::from_le_bytes(f.read_block()?);
-            // read custom metadata
-            let batch_md = <BA as BatchAdapterSpec>::decode_batch_metadata(gs, &mut f, meta)?;
-            // now read in every event
-            let mut real_commit_size = 0;
-            let mut batch_state = <BA as BatchAdapterSpec>::initialize_batch_state(gs);
-            loop {
-                if real_commit_size == _stored_expected_commit_size {
-                    break;
+        match Ba::get_event_logic(&meta) {
+            BatchEventExecutionLogic::Custom => Ba::decode_execute_custom(gs, f, meta),
+            BatchEventExecutionLogic::General => {
+                let mut f = f.context();
+                {
+                    // get metadata
+                    // read batch size
+                    let _stored_expected_commit_size = u64::from_le_bytes(f.read_block()?);
+                    // read custom metadata
+                    let batch_md =
+                        <Ba as BatchAdapterSpec>::decode_batch_metadata(gs, &mut f, meta)?;
+                    // now read in every event
+                    let mut real_commit_size = 0;
+                    let mut batch_state = <Ba as BatchAdapterSpec>::initialize_batch_state(gs);
+                    loop {
+                        if real_commit_size == _stored_expected_commit_size {
+                            break;
+                        }
+                        let event_type =
+                            <<Ba as BatchAdapterSpec>::EventType as TaggedEnum>::try_from_raw(
+                                f.read_block().map(|[b]| b)?,
+                            )
+                            .ok_or(StorageError::InternalDecodeStructureIllegalData)?;
+                        // is this an early exit marker? if so, exit
+                        if <Ba as BatchAdapterSpec>::is_early_exit(&event_type) {
+                            break;
+                        }
+                        // update batch state
+                        Ba::update_state_for_new_event(
+                            gs,
+                            &mut batch_state,
+                            &mut f,
+                            &batch_md,
+                            event_type,
+                            heuristics,
+                        )?;
+                        real_commit_size += 1;
+                    }
+                    // read actual commit size
+                    let _stored_actual_commit_size = u64::from_le_bytes(f.read_block()?);
+                    if _stored_actual_commit_size == real_commit_size {
+                        // finish applying batch
+                        Ba::finish(batch_state, batch_md, gs, heuristics)?;
+                    } else {
+                        return Err(StorageError::RawJournalDecodeBatchContentsMismatch.into());
+                    }
                 }
-                let event_type = <<BA as BatchAdapterSpec>::EventType as TaggedEnum>::try_from_raw(
-                    f.read_block().map(|[b]| b)?,
-                )
-                .ok_or(StorageError::InternalDecodeStructureIllegalData)?;
-                // is this an early exit marker? if so, exit
-                if <BA as BatchAdapterSpec>::is_early_exit(&event_type) {
-                    break;
+                // and finally, verify checksum
+                let (real_checksum, file) = f.finish();
+                let stored_checksum = u64::from_le_bytes(file.read_block()?);
+                if real_checksum == stored_checksum {
+                    Ok(())
+                } else {
+                    Err(StorageError::RawJournalDecodeBatchIntegrityFailure.into())
                 }
-                // update batch state
-                BA::update_state_for_new_event(
-                    gs,
-                    &mut batch_state,
-                    &mut f,
-                    &batch_md,
-                    event_type,
-                    heuristics,
-                )?;
-                real_commit_size += 1;
             }
-            // read actual commit size
-            let _stored_actual_commit_size = u64::from_le_bytes(f.read_block()?);
-            if _stored_actual_commit_size == real_commit_size {
-                // finish applying batch
-                BA::finish(batch_state, batch_md, gs, heuristics)?;
-            } else {
-                return Err(StorageError::RawJournalDecodeBatchContentsMismatch.into());
-            }
-        }
-        // and finally, verify checksum
-        let (real_checksum, file) = f.finish();
-        let stored_checksum = u64::from_le_bytes(file.read_block()?);
-        if real_checksum == stored_checksum {
-            Ok(())
-        } else {
-            Err(StorageError::RawJournalDecodeBatchIntegrityFailure.into())
         }
     }
 }

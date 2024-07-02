@@ -1318,9 +1318,9 @@ dependencies = [
 
 [[package]]
 name = "sky-derive"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a5d926a1f01fa0f21cf9ba651777b78e0a8a236be400d94cbb03396f5e22287"
+checksum = "653a697e7fcd1ecf5f9af1d3277d6d48290f29f076cb0190011eb09cff2238ea"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1376,8 +1376,8 @@ dependencies = [
 
 [[package]]
 name = "skytable"
-version = "0.8.8"
-source = "git+https://github.com/skytable/client-rust.git?branch=devel#b1da3aa3a73140abfc320dee539e0ea976efea46"
+version = "0.8.9"
+source = "git+https://github.com/skytable/client-rust.git?branch=devel#95b6e3395b43e46b23ff20ae896c3fb9351cda1b"
 dependencies = [
  "async-trait",
  "bb8",

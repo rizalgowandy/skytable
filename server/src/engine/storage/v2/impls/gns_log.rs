@@ -185,8 +185,8 @@ impl EventLogSpec for GNSEventLog {
 }
 
 impl<T: GNSEvent> JournalAdapterEvent<EventLogAdapter<GNSEventLog>> for T {
-    fn md(&self) -> u64 {
-        <T as GNSTransaction>::CODE.dscr_u64()
+    fn md(&self) -> GNSTransactionCode {
+        <T as GNSTransaction>::CODE
     }
     fn write_buffered(self, b: &mut Vec<u8>, _: ()) {
         #[cfg(test)]

@@ -81,6 +81,7 @@ impl Model {
 #[derive(Debug)]
 pub struct ModelData {
     uuid: Uuid,
+    runtime_id: u64,
     p_key: RawStr,
     p_tag: FullTag,
     fields: Fields,
@@ -175,6 +176,15 @@ impl ModelData {
         ret.push('}');
         ret
     }
+    pub fn delta_state_mut(&mut self) -> &mut DeltaState {
+        &mut self.delta
+    }
+    pub fn runtime_id(&self) -> u64 {
+        self.runtime_id
+    }
+    pub fn increment_runtime_id(&mut self) {
+        self.runtime_id += 1;
+    }
 }
 
 impl ModelData {
@@ -187,6 +197,7 @@ impl ModelData {
     ) -> Self {
         let mut slf = Self {
             uuid,
+            runtime_id: 0,
             p_key,
             p_tag,
             fields,

@@ -105,9 +105,11 @@ pub struct ModelDataAdapter;
 #[derive(Debug, PartialEq, Clone, Copy, TaggedEnum)]
 #[repr(u8)]
 /// The kind of batch
-pub enum BatchType {
+pub enum BatchEvent {
     /// a standard batch (with n <= m events; n = Δdata, m = cardinality)
     Standard = 0,
+    /// a full truncate
+    Truncate = 1,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, TaggedEnum)]
@@ -325,8 +327,8 @@ impl<'a> StdModelBatch<'a> {
 }
 
 impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for StdModelBatch<'a> {
-    fn md(&self) -> u64 {
-        BatchType::Standard.dscr_u64()
+    fn md(&self) -> BatchEvent {
+        BatchEvent::Standard
     }
     fn write_direct(
         self,
@@ -388,8 +390,8 @@ impl<'a> FullModel<'a> {
 }
 
 impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for FullModel<'a> {
-    fn md(&self) -> u64 {
-        BatchType::Standard.dscr_u64()
+    fn md(&self) -> BatchEvent {
+        BatchEvent::Standard
     }
     fn write_direct(
         self,
@@ -397,6 +399,20 @@ impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for FullModel<'a> {
         _: Rc<RefCell<BatchStats>>,
     ) -> RuntimeResult<()> {
         self.write::<false>(f)
+    }
+}
+
+pub struct Truncate;
+impl JournalAdapterEvent<ModelAdapter> for Truncate {
+    fn md(&self) -> <ModelAdapter as RawJournalAdapter>::EventMeta {
+        BatchEvent::Truncate
+    }
+    fn write_direct(
+        self,
+        _: &mut TrackedWriter<<ModelAdapter as RawJournalAdapter>::Spec>,
+        _: <ModelAdapter as RawJournalAdapter>::CommitContext,
+    ) -> RuntimeResult<()> {
+        Ok(())
     }
 }
 
@@ -468,8 +484,8 @@ impl BatchStats {
 
 struct ModelConslidation<'a>(&'a ModelData);
 impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for ModelConslidation<'a> {
-    fn md(&self) -> u64 {
-        BatchType::Standard.dscr_u64()
+    fn md(&self) -> BatchEvent {
+        BatchEvent::Standard
     }
     fn write_direct(
         self,
@@ -483,12 +499,18 @@ impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for ModelConslidati
 impl BatchAdapterSpec for ModelDataAdapter {
     type Spec = ModelDataBatchAofV1;
     type GlobalState = ModelData;
-    type BatchType = BatchType;
+    type BatchRootType = BatchEvent;
     type EventType = EventType;
     type BatchMetadata = BatchMetadata;
     type BatchState = BatchRestoreState;
     type CommitContext = Rc<RefCell<BatchStats>>;
     type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn get_event_logic(md: &Self::BatchRootType) -> journal::BatchEventExecutionLogic {
+        match md {
+            BatchEvent::Standard => journal::BatchEventExecutionLogic::General,
+            BatchEvent::Truncate => journal::BatchEventExecutionLogic::Custom,
+        }
+    }
     fn consolidate_batch<'a>(
         writer: &mut ModelDriver,
         ctx: Self::FullSyncCtx<'a>,
@@ -511,21 +533,38 @@ impl BatchAdapterSpec for ModelDataAdapter {
     fn decode_batch_metadata(
         _: &Self::GlobalState,
         f: &mut TrackedReaderContext<Self::Spec>,
-        batch_type: Self::BatchType,
+        batch_type: Self::BatchRootType,
     ) -> RuntimeResult<Self::BatchMetadata> {
         // [pk tag][schema version][column cnt]
         match batch_type {
-            BatchType::Standard => {}
+            BatchEvent::Standard => {
+                let pk_tag = TagUnique::try_from_raw(f.read_block().map(|[b]| b)?)
+                    .ok_or(StorageError::InternalDecodeStructureIllegalData)?;
+                let schema_version = u64::from_le_bytes(f.read_block()?);
+                let column_count = u64::from_le_bytes(f.read_block()?);
+                Ok(BatchMetadata {
+                    pk_tag,
+                    schema_version,
+                    column_count,
+                })
+            }
+            BatchEvent::Truncate => unreachable!(),
         }
-        let pk_tag = TagUnique::try_from_raw(f.read_block().map(|[b]| b)?)
-            .ok_or(StorageError::InternalDecodeStructureIllegalData)?;
-        let schema_version = u64::from_le_bytes(f.read_block()?);
-        let column_count = u64::from_le_bytes(f.read_block()?);
-        Ok(BatchMetadata {
-            pk_tag,
-            schema_version,
-            column_count,
-        })
+    }
+    fn decode_execute_custom(
+        gs: &Self::GlobalState,
+        _f: &mut crate::engine::storage::common::sdss::sdss_r1::rw::TrackedReader<Self::Spec>,
+        event_kind: Self::BatchRootType,
+    ) -> RuntimeResult<()> {
+        match event_kind {
+            BatchEvent::Standard => unreachable!(),
+            BatchEvent::Truncate => {
+                gs.primary_index()
+                    .__raw_index()
+                    .mt_clear(&crossbeam_epoch::pin());
+                Ok(())
+            }
+        }
     }
     fn update_state_for_new_event(
         _: &Self::GlobalState,

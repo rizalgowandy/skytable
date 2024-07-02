@@ -394,7 +394,7 @@ macro_rules! jtrace_reader {
 */
 
 pub trait RawJournalAdapterEvent<CA: RawJournalAdapter>: Sized {
-    fn md(&self) -> u64;
+    fn md(&self) -> CA::EventMeta;
     fn write_direct(
         self,
         _: &mut TrackedWriter<<CA as RawJournalAdapter>::Spec>,
@@ -426,7 +426,7 @@ pub trait RawJournalAdapter: Sized {
     /// any external context to use during commit. can be used by events
     type CommitContext;
     /// a type representing the event kind
-    type EventMeta;
+    type EventMeta: TaggedEnum;
     /// the context needed for a full sync of the journal into a (possibly) new intermediary journal
     type FullSyncCtx<'a>;
     fn rewrite_full_journal<'a>(
@@ -792,11 +792,13 @@ impl<J: RawJournalAdapter> RawJournalWriter<J> {
         ctx: J::CommitContext,
     ) -> RuntimeResult<()> {
         self.txn_context(|me, txn_id| {
-            let ev_md = event.md();
             jtrace_writer!(CommitAttemptForEvent(txn_id as u64));
             // MSB must be unused; set msb
-            debug_assert!(ev_md & SERVER_EV_MASK != 1, "MSB must be unset");
-            let ev_md = ev_md | SERVER_EV_MASK;
+            debug_assert!(
+                event.md().dscr_u64() & SERVER_EV_MASK != 1,
+                "MSB must be unset"
+            );
+            let ev_md = event.md().dscr_u64() | SERVER_EV_MASK;
             // commit event
             let Self { j, log_file, .. } = me;
             match J::COMMIT_PREFERENCE {

@@ -452,10 +452,7 @@ macro_rules! array {
 macro_rules! e {
     ($e:expr) => {{
         #[inline(always)]
-        fn r<T, E1, E2>(r: Result<T, E1>) -> Result<T, E2>
-        where
-            E2: From<E1>,
-        {
+        fn r<T, E1, E2: From<E1>>(r: Result<T, E1>) -> Result<T, E2> {
             r.map_err(::core::convert::From::from)
         }
         r($e)

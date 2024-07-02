@@ -198,8 +198,8 @@ fn read_kv(
 
 pub struct Insert<'a>(&'a str, &'a str);
 impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Insert<'a> {
-    fn md(&self) -> u64 {
-        CompactDBEventKind::Insert.dscr_u64()
+    fn md(&self) -> CompactDBEventKind {
+        CompactDBEventKind::Insert
     }
     fn write_buffered<'b>(
         self,
@@ -215,8 +215,8 @@ impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Insert<'a> {
 
 pub struct Update<'a>(&'a str, &'a str);
 impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Update<'a> {
-    fn md(&self) -> u64 {
-        CompactDBEventKind::Update.dscr_u64()
+    fn md(&self) -> CompactDBEventKind {
+        CompactDBEventKind::Update
     }
     fn write_buffered<'b>(
         self,
@@ -232,8 +232,8 @@ impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Update<'a> {
 
 pub struct Remove<'a>(&'a str);
 impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Remove<'a> {
-    fn md(&self) -> u64 {
-        CompactDBEventKind::Remove.dscr_u64()
+    fn md(&self) -> CompactDBEventKind {
+        CompactDBEventKind::Remove
     }
     fn write_buffered<'b>(
         self,
