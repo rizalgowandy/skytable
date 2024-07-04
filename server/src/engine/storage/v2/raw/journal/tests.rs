@@ -40,9 +40,9 @@ use {
             mem::unsafe_apis,
             storage::{
                 common::sdss::sdss_r1::rw::{TrackedReader, TrackedReaderContext, TrackedWriter},
-                v2::raw::{
-                    journal::raw::{create_journal, open_journal, RawJournalWriter},
-                    spec::{ModelDataBatchAofV1, SystemDatabaseV1},
+                v2::{
+                    impls::{gns_log::FSpecSystemDatabaseV1, mdl_journal::FSpecModelDataAofV1},
+                    raw::journal::raw::{create_journal, open_journal, RawJournalWriter},
                 },
             },
             RuntimeResult,
@@ -106,7 +106,7 @@ impl<TE: IsTestEvent> RawJournalAdapterEvent<EventLogAdapter<TestDBAdapter>> for
 
 pub struct TestDBAdapter;
 impl EventLogSpec for TestDBAdapter {
-    type Spec = SystemDatabaseV1;
+    type Spec = FSpecSystemDatabaseV1;
     type GlobalState = TestDB;
     type EventMeta = TestEvent;
     type DecodeDispatch = [DispatchFn<TestDB>; 3];
@@ -354,7 +354,7 @@ pub struct BatchContext {
 
 pub struct BatchDBAdapter;
 impl BatchAdapterSpec for BatchDBAdapter {
-    type Spec = ModelDataBatchAofV1;
+    type Spec = FSpecModelDataAofV1;
     type GlobalState = BatchDB;
     type BatchRootType = BatchType;
     type EventType = BatchEventType;

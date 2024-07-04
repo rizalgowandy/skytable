@@ -66,8 +66,8 @@ impl<S: FileSpecV1> SdssFile<S> {
     where
         S: FileSpecV1<DecodeArgs = ()>,
     {
-        let mut f = File::open_with_options(path, read, write)?;
-        let md = S::read_metadata(&mut f, ())?;
+        let f = File::open_with_options(path, read, write)?;
+        let (f, md) = S::prepare_file_open(f, ())?;
         Ok(Self::new(f, md))
     }
     /// Open an existing SDSS based file (with no validation arguments)
@@ -82,8 +82,8 @@ impl<S: FileSpecV1> SdssFile<S> {
     where
         S: FileSpecV1<EncodeArgs = ()>,
     {
-        let mut f = File::create(path)?;
-        let md = S::write_metadata(&mut f, ())?;
+        let f = File::create(path)?;
+        let (f, md) = S::prepare_file_create(f, ())?;
         Ok(Self::new(f, md))
     }
     pub fn into_buffered_reader(self) -> IoResult<SdssFile<S, BufferedReader>> {
@@ -601,12 +601,12 @@ impl<
 fn check_vfs_buffering() {
     use crate::engine::storage::{
         common::interface::fs::FileSystem,
-        v2::raw::spec::{Header, SystemDatabaseV1},
+        v2::{impls::gns_log::FSpecSystemDatabaseV1, raw::spec::Header},
     };
     fn rawfile() -> Vec<u8> {
         FileSystem::read("myfile").unwrap()
     }
-    let compiled_header = SystemDatabaseV1::metadata_to_block(()).unwrap();
+    let compiled_header = FSpecSystemDatabaseV1::metadata_to_block(()).unwrap();
     let expected_checksum = {
         let mut crc = SCrc64::new();
         crc.update(&vec![0; 8192]);
@@ -616,7 +616,7 @@ fn check_vfs_buffering() {
     };
     closure! {
         // init writer
-        let mut twriter: TrackedWriter<SystemDatabaseV1> =
+        let mut twriter: TrackedWriter<FSpecSystemDatabaseV1> =
             TrackedWriter::new(SdssFile::create("myfile")?)?;
         assert_eq!(twriter.cursor_usize(), Header::SIZE);
         {

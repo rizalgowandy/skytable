@@ -41,7 +41,7 @@ use {
         engine::{
             error::StorageError,
             mem::unsafe_apis::memcpy,
-            storage::common::interface::fs::{FileRead, FileWrite},
+            storage::common::interface::fs::{File, FileRead, FileWrite},
             RuntimeResult,
         },
         util::{compiler::TaggedEnum, os},
@@ -389,32 +389,54 @@ impl<H: HeaderV1Spec> HeaderV1<H> {
     }
 }
 
-pub trait FileSpecV1 {
+pub trait FileSpecV1: Sized {
+    /// the size of the file header
     const SIZE: usize = HeaderV1::<Self::HeaderSpec>::SIZE;
     type Metadata;
     /// the header type
     type HeaderSpec: HeaderV1Spec;
     /// the args need to validate the metadata (for example, additional context)
     type EncodeArgs;
+    /// additional arguments to pass in for decoding metadata (such as additional context etc.)
     type DecodeArgs;
+    // file open
+    /// prepare the file for opening (read metadata, do any small upgrades, etc.)
+    fn prepare_file_open(
+        mut f: File,
+        v_args: Self::DecodeArgs,
+    ) -> RuntimeResult<(File, Self::Metadata)> {
+        let md = HeaderV1::decode(f.fread_exact_block()?)?;
+        match Self::validate_metadata(md, v_args) {
+            Ok(md) => Ok((f, md)),
+            Err(md) => Self::upgrade_file(f, md),
+        }
+    }
     /// validate the metadata
     fn validate_metadata(
         md: HeaderV1<Self::HeaderSpec>,
         v_args: Self::DecodeArgs,
-    ) -> RuntimeResult<Self::Metadata>;
-    /// read and validate metadata (only override if you need to)
-    fn read_metadata(
-        f: &mut impl FileRead,
-        v_args: Self::DecodeArgs,
-    ) -> RuntimeResult<Self::Metadata> {
-        let md = HeaderV1::decode(f.fread_exact_block()?)?;
-        Self::validate_metadata(md, v_args)
+    ) -> Result<Self::Metadata, HeaderV1<Self::HeaderSpec>>;
+    // file create
+    /// prepare a file after creation
+    fn prepare_file_create(
+        mut f: File,
+        e_args: Self::EncodeArgs,
+    ) -> RuntimeResult<(File, Self::Metadata)> {
+        let md = Self::_write_metadata(&mut f, e_args)?;
+        Ok((f, md))
     }
     /// write metadata
-    fn write_metadata(f: &mut impl FileWrite, args: Self::EncodeArgs) -> IoResult<Self::Metadata>;
+    fn _write_metadata(f: &mut impl FileWrite, args: Self::EncodeArgs) -> IoResult<Self::Metadata>;
+    /// upgrade this file
+    fn upgrade_file(
+        f: File,
+        md: HeaderV1<Self::HeaderSpec>,
+    ) -> RuntimeResult<(File, Self::Metadata)>;
+    #[cfg(test)]
+    /// get the metadata as a blob
     fn metadata_to_block(args: Self::EncodeArgs) -> RuntimeResult<Vec<u8>> {
         let mut v = Vec::new();
-        Self::write_metadata(&mut v, args)?;
+        Self::_write_metadata(&mut v, args)?;
         Ok(v)
     }
 }
@@ -432,19 +454,19 @@ pub trait FileSpecV1 {
 /// ## Version Compatibility
 ///
 /// Also, the [`HeaderV1Spec`] is supposed to address compatibility across server and driver versions
-pub trait SimpleFileSpecV1 {
+pub trait SimpleFileSpecV1: Sized {
     type HeaderSpec: HeaderV1Spec;
     const FILE_CLASS: <Self::HeaderSpec as HeaderV1Spec>::FileClass;
     const FILE_SPECIFIER: <Self::HeaderSpec as HeaderV1Spec>::FileSpecifier;
     const FILE_SPECFIER_VERSION: FileSpecifierVersion;
-    fn check_if_file_specifier_revision_is_compatible(
-        v: FileSpecifierVersion,
-    ) -> RuntimeResult<()> {
-        if v == Self::FILE_SPECFIER_VERSION {
-            Ok(())
-        } else {
-            Err(StorageError::FileDecodeHeaderVersionMismatch.into())
-        }
+    fn check_if_file_specifier_revision_is_compatible(v: FileSpecifierVersion) -> bool {
+        v == Self::FILE_SPECFIER_VERSION
+    }
+    fn upgrade(
+        _: File,
+        _: HeaderV1<Self::HeaderSpec>,
+    ) -> RuntimeResult<(File, HeaderV1<Self::HeaderSpec>)> {
+        Err(StorageError::FileDecodeHeaderVersionMismatch.into())
     }
 }
 
@@ -456,24 +478,30 @@ impl<Sfs: SimpleFileSpecV1> FileSpecV1 for Sfs {
     fn validate_metadata(
         md: HeaderV1<Self::HeaderSpec>,
         _: Self::DecodeArgs,
-    ) -> RuntimeResult<Self::Metadata> {
+    ) -> Result<Self::Metadata, HeaderV1<Self::HeaderSpec>> {
         let okay = okay!(
             md.file_class() == Self::FILE_CLASS,
             md.file_specifier() == Self::FILE_SPECIFIER,
         );
-        Self::check_if_file_specifier_revision_is_compatible(md.file_specifier_version())?;
-        if okay {
+        if okay && Self::check_if_file_specifier_revision_is_compatible(md.file_specifier_version())
+        {
             Ok(md)
         } else {
-            Err(StorageError::FileDecodeHeaderVersionMismatch.into())
+            Err(md)
         }
     }
-    fn write_metadata(f: &mut impl FileWrite, _: Self::EncodeArgs) -> IoResult<Self::Metadata> {
+    fn _write_metadata(f: &mut impl FileWrite, _: Self::EncodeArgs) -> IoResult<Self::Metadata> {
         let (md, block) = HeaderV1::<Self::HeaderSpec>::encode_return(
             Self::FILE_CLASS,
             Self::FILE_SPECIFIER,
             Self::FILE_SPECFIER_VERSION,
         );
         f.fwrite_all(&block).map(|_| md)
+    }
+    fn upgrade_file(
+        f: File,
+        md: HeaderV1<Self::HeaderSpec>,
+    ) -> RuntimeResult<(File, Self::Metadata)> {
+        Self::upgrade(f, md)
     }
 }

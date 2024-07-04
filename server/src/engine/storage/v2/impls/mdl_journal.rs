@@ -41,14 +41,20 @@ use {
             error::StorageError,
             idx::{MTIndex, STIndex, STIndexSeq},
             storage::{
-                common::sdss::sdss_r1::rw::{TrackedReaderContext, TrackedWriter},
+                common::{
+                    sdss::{
+                        self,
+                        sdss_r1::rw::{TrackedReaderContext, TrackedWriter},
+                    },
+                    versions::FileSpecifierVersion,
+                },
                 common_encoding::r1,
                 v2::raw::{
                     journal::{
                         self, BatchAdapter, BatchAdapterSpec, BatchDriver, JournalAdapterEvent,
                         JournalHeuristics, JournalSettings, JournalStats, RawJournalAdapter,
                     },
-                    spec::ModelDataBatchAofV1,
+                    spec::{FileClass, FileSpecifier, HeaderImplV2},
                 },
             },
             RuntimeResult,
@@ -65,6 +71,18 @@ use {
 };
 
 pub type ModelAdapter = BatchAdapter<ModelDataAdapter>;
+
+/*
+    metadata spec
+*/
+
+pub struct FSpecModelDataAofV1;
+impl sdss::sdss_r1::SimpleFileSpecV1 for FSpecModelDataAofV1 {
+    type HeaderSpec = HeaderImplV2;
+    const FILE_CLASS: FileClass = FileClass::Batch;
+    const FILE_SPECIFIER: FileSpecifier = FileSpecifier::ModelData;
+    const FILE_SPECFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
+}
 
 #[cfg(test)]
 local! {
@@ -356,7 +374,7 @@ impl<'a> FullModel<'a> {
     }
     fn write<const ZERO: bool>(
         self,
-        f: &mut TrackedWriter<ModelDataBatchAofV1>,
+        f: &mut TrackedWriter<FSpecModelDataAofV1>,
     ) -> Result<(), crate::engine::fractal::error::Error> {
         let g = pin();
         let mut row_writer: RowWriter<'_> = RowWriter { f };
@@ -497,7 +515,7 @@ impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for ModelConslidati
 }
 
 impl BatchAdapterSpec for ModelDataAdapter {
-    type Spec = ModelDataBatchAofV1;
+    type Spec = FSpecModelDataAofV1;
     type GlobalState = ModelData;
     type BatchRootType = BatchEvent;
     type EventType = EventType;
@@ -773,7 +791,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
 
 mod restore_impls {
     use {
-        super::BatchMetadata,
+        super::{BatchMetadata, FSpecModelDataAofV1},
         crate::{
             engine::{
                 core::index::PrimaryIndexKey,
@@ -785,7 +803,6 @@ mod restore_impls {
                         obj::cell::{self, StorageCellTypeID},
                         DataSource,
                     },
-                    v2::raw::spec::ModelDataBatchAofV1,
                 },
                 RuntimeResult,
             },
@@ -831,7 +848,7 @@ mod restore_impls {
     }
     pub fn decode_row_data(
         batch_info: &BatchMetadata,
-        f: &mut TrackedReaderContext<ModelDataBatchAofV1>,
+        f: &mut TrackedReaderContext<FSpecModelDataAofV1>,
     ) -> Result<Vec<Datacell>, crate::engine::fractal::error::Error> {
         let mut row = vec![];
         let mut this_col_cnt = batch_info.column_count;
@@ -866,7 +883,7 @@ mod restore_impls {
             Self(StorageError::InternalDecodeStructureCorrupted.into())
         }
     }
-    impl<'a> DataSource for TrackedReaderContext<'a, ModelDataBatchAofV1> {
+    impl<'a> DataSource for TrackedReaderContext<'a, FSpecModelDataAofV1> {
         const RELIABLE_SOURCE: bool = false;
         type Error = ErrorHack;
         fn has_remaining(&self, cnt: usize) -> bool {

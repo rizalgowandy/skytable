@@ -38,9 +38,9 @@ use {
         error::StorageError,
         storage::{
             common::{checksum::SCrc64, sdss::sdss_r1::rw::TrackedReader},
-            v2::raw::{
-                journal::raw::{JournalReaderTraceEvent, JournalWriterTraceEvent},
-                spec::SystemDatabaseV1,
+            v2::{
+                impls::gns_log::FSpecSystemDatabaseV1,
+                raw::journal::raw::{JournalReaderTraceEvent, JournalWriterTraceEvent},
             },
         },
         RuntimeResult,
@@ -146,7 +146,7 @@ pub enum SimpleDBOpcode {
 
 impl RawJournalAdapter for SimpleDBJournal {
     const COMMIT_PREFERENCE: CommitPreference = CommitPreference::Buffered;
-    type Spec = SystemDatabaseV1;
+    type Spec = FSpecSystemDatabaseV1;
     type GlobalState = SimpleDB;
     type EventMeta = SimpleDBOpcode;
     type CommitContext = ();
