@@ -25,19 +25,36 @@
 
 use {
     super::{HeaderV1, SimpleFileSpecV1},
-    crate::engine::{
-        fractal::context,
-        storage::common::interface::fs::{File, FileExt, FileSystem, FileWrite},
-        RuntimeResult,
+    crate::{
+        engine::{
+            fractal::context,
+            storage::common::interface::fs::{File, FileExt, FileSystem, FileWrite},
+            RuntimeResult,
+        },
+        util::os,
     },
     std::path::Path,
 };
 
-pub fn upgrade_file<S: SimpleFileSpecV1>(
+pub fn upgrade_file_header<S: SimpleFileSpecV1>(
     orig_path: impl AsRef<Path>,
-    md: HeaderV1<S::HeaderSpec>,
+    orig_md: HeaderV1<S::HeaderSpec>,
 ) -> RuntimeResult<(File, HeaderV1<S::HeaderSpec>)> {
     let orig_path = orig_path.as_ref();
+    info!(
+        "upgrading file {} from v{} to v{}",
+        orig_path.to_str().unwrap(),
+        orig_md.file_specifier_version().version(),
+        S::FILE_SPECIFIER_VERSION.version(),
+    );
+    // prepare md
+    let md = HeaderV1::_new_auto(
+        S::FILE_CLASS,
+        S::FILE_SPECIFIER,
+        S::FILE_SPECIFIER_VERSION,
+        os::get_epoch_time(),
+        [0u8; 8],
+    );
     // create a temporary copy
     let upgraded_file_path = format!("{}.tmp", orig_path.to_str().unwrap());
     context::set_dmsg("creating tmp file");
@@ -52,6 +69,7 @@ pub fn upgrade_file<S: SimpleFileSpecV1>(
     context::set_dmsg("pointing to new upgraded file");
     FileSystem::rename(upgraded_file_path, orig_path)?;
     // reopen file
+    context::set_dmsg("reopening upgraded file");
     let mut f = File::open_rw(orig_path)?;
     f.f_seek_start(HeaderV1::<S::HeaderSpec>::SIZE as u64)?;
     Ok((f, md))
@@ -60,20 +78,17 @@ pub fn upgrade_file<S: SimpleFileSpecV1>(
 #[cfg(test)]
 mod test_upgrade {
     use {
-        crate::{
-            engine::{
-                error::StorageError,
-                storage::{
-                    common::{
-                        interface::fs::{FSContext, File, FileSystem},
-                        sdss::sdss_r1::{rw::SdssFile, HeaderV1, SimpleFileSpecV1},
-                        versions::FileSpecifierVersion,
-                    },
-                    v2::raw::spec::{FileClass, FileSpecifier, HeaderImplV2},
+        crate::engine::{
+            error::StorageError,
+            storage::{
+                common::{
+                    interface::fs::{FSContext, File, FileSystem},
+                    sdss::sdss_r1::{rw::SdssFile, HeaderV1, SimpleFileSpecV1},
+                    versions::FileSpecifierVersion,
                 },
-                RuntimeResult,
+                v2::raw::spec::{FileClass, FileSpecifier, HeaderImplV2},
             },
-            util::os,
+            RuntimeResult,
         },
         std::path::Path,
     };
@@ -93,21 +108,13 @@ mod test_upgrade {
         const FILE_SPECIFIER: FileSpecifier = FileSpecifier::ModelData;
         fn upgrade(
             orig_path: impl AsRef<Path>,
-            _: File,
+            f: File,
             orig_md: HeaderV1<Self::HeaderSpec>,
         ) -> RuntimeResult<(File, HeaderV1<Self::HeaderSpec>)> {
+            drop(f);
             if orig_md.file_specifier_version() == FileSpecifierVersion::__new(0) {
                 // this is rev.0, so we can upgrade it
-                super::upgrade_file::<Self>(
-                    orig_path,
-                    HeaderV1::_new_auto(
-                        Self::FILE_CLASS,
-                        Self::FILE_SPECIFIER,
-                        Self::FILE_SPECIFIER_VERSION,
-                        os::get_epoch_time(),
-                        [0u8; 8],
-                    ),
-                )
+                super::upgrade_file_header::<Self>(orig_path, orig_md)
             } else {
                 if orig_md.file_specifier_version() > Self::FILE_SPECIFIER_VERSION {
                     Err(StorageError::RuntimeUpgradeFailureFileIsNewer.into())

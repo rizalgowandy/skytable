@@ -42,9 +42,13 @@ use {
             idx::{MTIndex, STIndex, STIndexSeq},
             storage::{
                 common::{
+                    interface::fs::File,
                     sdss::{
                         self,
-                        sdss_r1::rw::{TrackedReaderContext, TrackedWriter},
+                        sdss_r1::{
+                            rw::{TrackedReaderContext, TrackedWriter},
+                            upgrades,
+                        },
                     },
                     versions::FileSpecifierVersion,
                 },
@@ -65,7 +69,7 @@ use {
     sky_macros::TaggedEnum,
     std::{
         cell::RefCell,
-        collections::{hash_map::Entry as HMEntry, HashMap},
+        collections::hash_map::{Entry as HMEntry, HashMap},
         rc::Rc,
     },
 };
@@ -81,7 +85,25 @@ impl sdss::sdss_r1::SimpleFileSpecV1 for FSpecModelDataAofV1 {
     type HeaderSpec = HeaderImplV2;
     const FILE_CLASS: FileClass = FileClass::Batch;
     const FILE_SPECIFIER: FileSpecifier = FileSpecifier::ModelData;
-    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(1);
+    fn upgrade(
+        orig_path: impl AsRef<std::path::Path>,
+        f: File,
+        orig_md: sdss::sdss_r1::HeaderV1<Self::HeaderSpec>,
+    ) -> RuntimeResult<(File, sdss::sdss_r1::HeaderV1<Self::HeaderSpec>)> {
+        drop(f);
+        if orig_md.file_specifier_version() == FileSpecifierVersion::__new(0) {
+            // this is rev.0, so we can upgrade it
+            upgrades::upgrade_file_header::<Self>(orig_path, orig_md)
+        } else {
+            if orig_md.file_specifier_version() > Self::FILE_SPECIFIER_VERSION {
+                Err(StorageError::RuntimeUpgradeFailureFileIsNewer.into())
+            } else {
+                // can't be the same version version!
+                unreachable!()
+            }
+        }
+    }
 }
 
 #[cfg(test)]
