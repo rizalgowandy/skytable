@@ -35,6 +35,7 @@ use crate::{
         data::{lit::Lit, tag::DataTag},
         error::{QueryError, QueryResult},
         fractal::GlobalInstanceLike,
+        idx::MTIndex,
         ql::dml::{trunc::TruncateStmt, WhereClause},
         storage::{BatchStats, Truncate},
     },
@@ -95,12 +96,6 @@ pub fn truncate(g: &impl GlobalInstanceLike, stmt: TruncateStmt) -> QueryResult<
             g.state()
                 .namespace()
                 .with_full_model_for_ddl(mdl_id, |_, mdl| {
-                    /*
-                        1. get model driver, commit truncate
-                        2. wipe delta state
-                        3. increment runtime id
-                        4. done
-                    */
                     // commit truncate
                     {
                         let mut drv = mdl.driver().batch_driver().lock();
@@ -109,6 +104,11 @@ pub fn truncate(g: &impl GlobalInstanceLike, stmt: TruncateStmt) -> QueryResult<
                             .commit_with_ctx(Truncate, BatchStats::new())?;
                         // good now clear delta state
                     }
+                    // wipe the index
+                    mdl.data()
+                        .primary_index()
+                        .__raw_index()
+                        .mt_clear(&crossbeam_epoch::pin());
                     // reset delta state
                     mdl.data_mut().delta_state_mut().__reset();
                     // increment runtime ID to invalidate previously queued tasks

@@ -57,6 +57,11 @@ pub enum FSContext {
 
 #[cfg(test)]
 impl FileSystem {
+    pub fn with_files(files: impl IntoIterator<Item = impl ToString>) -> Self {
+        Self {
+            remove_file_list: files.into_iter().map(|arg| arg.to_string()).collect(),
+        }
+    }
     pub const fn instance() -> Self {
         Self {
             remove_file_list: vec![],

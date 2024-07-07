@@ -24,16 +24,24 @@
  *
 */
 
-use crate::engine::{
-    core::{dml, model::ModelData, space::Space, EntityID},
-    error::QueryResult,
-    fractal::test_utils::TestGlobal,
-    ql::{
-        ast,
-        ddl::crt::{CreateModel, CreateSpace},
-        dml::{ins::InsertStatement, upd::UpdateStatement},
-        tests::lex_insecure,
+use {
+    crate::{
+        engine::{
+            core::{dml, model::ModelData, space::Space, EntityID, EntityIDRef},
+            error::QueryResult,
+            fractal::{test_utils::TestGlobal, GlobalInstanceLike},
+            idx::MTIndex,
+            ql::{
+                ast::{self, traits::ASTNode},
+                ddl::crt::{CreateModel, CreateSpace},
+                dml::{ins::InsertStatement, upd::UpdateStatement},
+                tests::lex_insecure,
+            },
+            storage::common::interface::fs::{FSContext, FileSystem},
+        },
+        util,
     },
+    std::collections::BTreeMap,
 };
 
 mod compaction_test;
@@ -89,4 +97,96 @@ fn run_update(global: &TestGlobal, update: &str) -> QueryResult<()> {
     let tokens = lex_insecure(update.as_bytes()).unwrap();
     let insert: UpdateStatement = ast::parse_ast_node_full(&tokens[1..]).unwrap();
     dml::update(global, insert)
+}
+
+#[test]
+fn truncate() {
+    FileSystem::set_context(FSContext::Local);
+    const LOG_NAME: &str = "truncate_log.db";
+    let _fs = FileSystem::with_files([LOG_NAME]);
+    {
+        let mut global = TestGlobal::new_with_driver_id(LOG_NAME);
+        global.set_max_data_pressure(0);
+        create_model_and_space(
+            &global,
+            "create model truncation.entries(k: string, v: string)",
+        )
+        .unwrap();
+        for num in 1u64..=10 {
+            run_insert(
+                &global,
+                &format!("insert into truncation.entries('k-{num}', 'v-{num}')"),
+            )
+            .unwrap();
+        }
+        {
+            let truncate_query =
+                lex_insecure("truncate model truncation.entries".as_bytes()).unwrap();
+            let truncate_query = ASTNode::from_insecure_tokens_full(&truncate_query[1..]).unwrap();
+            dml::truncate(&global, truncate_query).unwrap();
+        }
+        assert_eq!(
+            global
+                .state()
+                .namespace()
+                .with_model(EntityIDRef::new("truncation", "entries"), |mdl| {
+                    Ok(mdl.primary_index().count())
+                })
+                .unwrap(),
+            0
+        );
+    }
+    {
+        let mut global = TestGlobal::new_with_driver_id(LOG_NAME);
+        global.set_max_data_pressure(0);
+        assert_eq!(
+            global
+                .state()
+                .namespace()
+                .with_model(EntityIDRef::new("truncation", "entries"), |mdl| {
+                    Ok(mdl.primary_index().count())
+                })
+                .unwrap(),
+            0
+        );
+        for num in 11u64..=20 {
+            run_insert(
+                &global,
+                &format!("insert into truncation.entries('k-{num}', 'v-{num}')"),
+            )
+            .unwrap();
+        }
+    }
+    util::test_utils::multi_run(100, || {
+        let global = TestGlobal::new_with_driver_id(LOG_NAME);
+        assert_eq!(
+            global
+                .state()
+                .namespace()
+                .with_model(EntityIDRef::new("truncation", "entries"), |mdl| {
+                    let mut entries = BTreeMap::new();
+                    mdl.primary_index()
+                        .__raw_index()
+                        .mt_iter_kv(&crossbeam_epoch::pin())
+                        .map(|(k, row)| {
+                            (
+                                k.str().unwrap().to_string(),
+                                row.read()
+                                    .fields()
+                                    .into_iter()
+                                    .map(|(_, dc)| dc.str().to_string())
+                                    .collect::<Vec<_>>(),
+                            )
+                        })
+                        .for_each(|(k, v)| {
+                            entries.insert(k, v);
+                        });
+                    Ok(entries)
+                })
+                .unwrap(),
+            (11..=20)
+                .map(|i| (format!("k-{i}"), vec![format!("v-{i}")]))
+                .collect()
+        );
+    });
 }
