@@ -90,7 +90,7 @@ impl sdss::sdss_r1::SimpleFileSpecV1 for TestFile {
     type HeaderSpec = HeaderImplV1;
     const FILE_CLASS: FileScope = FileScope::FlatmapData;
     const FILE_SPECIFIER: FileSpecifier = FileSpecifier::TestTransactionLog;
-    const FILE_SPECFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
 }
 
 /// The file specification for the GNS transaction log (impl v1)
@@ -99,7 +99,7 @@ impl sdss::sdss_r1::SimpleFileSpecV1 for GNSTransactionLogV1 {
     type HeaderSpec = HeaderImplV1;
     const FILE_CLASS: FileScope = FileScope::Journal;
     const FILE_SPECIFIER: FileSpecifier = FileSpecifier::GNSTxnLog;
-    const FILE_SPECFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
 }
 
 /// The file specification for a journal batch
@@ -108,7 +108,7 @@ impl sdss::sdss_r1::SimpleFileSpecV1 for DataBatchJournalV1 {
     type HeaderSpec = HeaderImplV1;
     const FILE_CLASS: FileScope = FileScope::DataBatch;
     const FILE_SPECIFIER: FileSpecifier = FileSpecifier::TableDataBatch;
-    const FILE_SPECFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
 }
 
 /// The file specification for the system db
@@ -117,5 +117,5 @@ impl sdss::sdss_r1::SimpleFileSpecV1 for SysDBV1 {
     type HeaderSpec = HeaderImplV1;
     const FILE_CLASS: FileScope = FileScope::FlatmapData;
     const FILE_SPECIFIER: FileSpecifier = FileSpecifier::SysDB;
-    const FILE_SPECFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
 }

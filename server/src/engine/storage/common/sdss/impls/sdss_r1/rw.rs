@@ -66,8 +66,8 @@ impl<S: FileSpecV1> SdssFile<S> {
     where
         S: FileSpecV1<DecodeArgs = ()>,
     {
-        let f = File::open_with_options(path, read, write)?;
-        let (f, md) = S::prepare_file_open(f, ())?;
+        let f = File::open_with_options(path.as_ref(), read, write)?;
+        let (f, md) = S::prepare_file_open(path, f, ())?;
         Ok(Self::new(f, md))
     }
     /// Open an existing SDSS based file (with no validation arguments)
@@ -96,6 +96,9 @@ impl<S: FileSpecV1> SdssFile<S> {
     }
     pub fn into_meta(self) -> S::Metadata {
         self.meta
+    }
+    pub fn meta(&self) -> &S::Metadata {
+        &self.meta
     }
 }
 
@@ -606,7 +609,7 @@ fn check_vfs_buffering() {
     fn rawfile() -> Vec<u8> {
         FileSystem::read("myfile").unwrap()
     }
-    let compiled_header = FSpecSystemDatabaseV1::metadata_to_block(()).unwrap();
+    let compiled_header = FSpecSystemDatabaseV1::_metadata_to_block(()).unwrap();
     let expected_checksum = {
         let mut crc = SCrc64::new();
         crc.update(&vec![0; 8192]);

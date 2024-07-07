@@ -1182,6 +1182,7 @@ impl<J: RawJournalAdapter> RawJournalReader<J> {
             },
             ErrorKind::Storage(e) => match e {
                 // unreachable errors (no execution path here)
+                StorageError::RuntimeUpgradeFailureFileIsNewer
                 | StorageError::RawJournalRuntimeDirty
                 | StorageError::RuntimeEngineLoadError
                 | StorageError::RuntimeRestoreValidationFailure

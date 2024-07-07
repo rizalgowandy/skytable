@@ -142,7 +142,7 @@ impl SDSSFileIO<File> {
         fpath: &str,
     ) -> RuntimeResult<(Self, S::Metadata)> {
         let f = Self::_new(File::open_rw(fpath)?);
-        let (f, md) = S::prepare_file_open(f.f, ())?;
+        let (f, md) = S::prepare_file_open(fpath, f.f, ())?;
         Ok((SDSSFileIO::new(f), md))
     }
     pub fn into_buffered_reader(self) -> SDSSFileIO<BufferedReader> {

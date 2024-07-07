@@ -254,5 +254,6 @@ enumerate_err! {
         RawJournalRuntimeDirty = "journal-in-dirty-state",
         RuntimeRestoreValidationFailure = "restore-data-validation-failed",
         RuntimeEngineLoadError = "runtime-storage-engine-load-failure",
+        RuntimeUpgradeFailureFileIsNewer = "file-upgrade-failed-as-current-file-is-newer-than-supported",
     }
 }

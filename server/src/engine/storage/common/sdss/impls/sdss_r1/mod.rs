@@ -31,6 +31,7 @@
 //!
 
 pub mod rw;
+pub mod upgrades;
 
 use {
     super::super::super::{
@@ -47,7 +48,7 @@ use {
         util::{compiler::TaggedEnum, os},
         IoResult,
     },
-    std::ops::Range,
+    std::{ops::Range, path::Path},
 };
 
 pub const TEST_TIME: u128 = (u64::MAX / sizeof!(u64) as u64) as _;
@@ -196,6 +197,15 @@ impl<H: HeaderV1Spec> HeaderV1<H> {
             genesis_runtime_epoch_time,
             genesis_padding_block,
         }
+    }
+    pub(self) fn encode_self(&self) -> [u8; 64] {
+        Self::_encode_auto_raw(
+            self.file_class(),
+            self.file_specifier(),
+            self.file_specifier_version(),
+            self.epoch_time(),
+            self.padding_block(),
+        )
     }
     fn _encode_auto_raw(
         file_class: H::FileClass,
@@ -402,17 +412,18 @@ pub trait FileSpecV1: Sized {
     // file open
     /// prepare the file for opening (read metadata, do any small upgrades, etc.)
     fn prepare_file_open(
+        path: impl AsRef<Path>,
         mut f: File,
         v_args: Self::DecodeArgs,
     ) -> RuntimeResult<(File, Self::Metadata)> {
         let md = HeaderV1::decode(f.fread_exact_block()?)?;
-        match Self::validate_metadata(md, v_args) {
+        match Self::_validate_metadata(md, v_args) {
             Ok(md) => Ok((f, md)),
-            Err(md) => Self::upgrade_file(f, md),
+            Err(md) => Self::upgrade_file(path, f, md),
         }
     }
     /// validate the metadata
-    fn validate_metadata(
+    fn _validate_metadata(
         md: HeaderV1<Self::HeaderSpec>,
         v_args: Self::DecodeArgs,
     ) -> Result<Self::Metadata, HeaderV1<Self::HeaderSpec>>;
@@ -429,12 +440,14 @@ pub trait FileSpecV1: Sized {
     fn _write_metadata(f: &mut impl FileWrite, args: Self::EncodeArgs) -> IoResult<Self::Metadata>;
     /// upgrade this file
     fn upgrade_file(
-        f: File,
-        md: HeaderV1<Self::HeaderSpec>,
+        orig_path: impl AsRef<Path>,
+        orig_file: File,
+        orig_md: HeaderV1<Self::HeaderSpec>,
     ) -> RuntimeResult<(File, Self::Metadata)>;
+    // test methods
     #[cfg(test)]
     /// get the metadata as a blob
-    fn metadata_to_block(args: Self::EncodeArgs) -> RuntimeResult<Vec<u8>> {
+    fn _metadata_to_block(args: Self::EncodeArgs) -> RuntimeResult<Vec<u8>> {
         let mut v = Vec::new();
         Self::_write_metadata(&mut v, args)?;
         Ok(v)
@@ -458,13 +471,14 @@ pub trait SimpleFileSpecV1: Sized {
     type HeaderSpec: HeaderV1Spec;
     const FILE_CLASS: <Self::HeaderSpec as HeaderV1Spec>::FileClass;
     const FILE_SPECIFIER: <Self::HeaderSpec as HeaderV1Spec>::FileSpecifier;
-    const FILE_SPECFIER_VERSION: FileSpecifierVersion;
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion;
     fn check_if_file_specifier_revision_is_compatible(v: FileSpecifierVersion) -> bool {
-        v == Self::FILE_SPECFIER_VERSION
+        v == Self::FILE_SPECIFIER_VERSION
     }
     fn upgrade(
-        _: File,
-        _: HeaderV1<Self::HeaderSpec>,
+        _orig_path: impl AsRef<Path>,
+        _orig_file: File,
+        _orig_md: HeaderV1<Self::HeaderSpec>,
     ) -> RuntimeResult<(File, HeaderV1<Self::HeaderSpec>)> {
         Err(StorageError::FileDecodeHeaderVersionMismatch.into())
     }
@@ -475,7 +489,7 @@ impl<Sfs: SimpleFileSpecV1> FileSpecV1 for Sfs {
     type HeaderSpec = <Self as SimpleFileSpecV1>::HeaderSpec;
     type DecodeArgs = ();
     type EncodeArgs = ();
-    fn validate_metadata(
+    fn _validate_metadata(
         md: HeaderV1<Self::HeaderSpec>,
         _: Self::DecodeArgs,
     ) -> Result<Self::Metadata, HeaderV1<Self::HeaderSpec>> {
@@ -494,14 +508,15 @@ impl<Sfs: SimpleFileSpecV1> FileSpecV1 for Sfs {
         let (md, block) = HeaderV1::<Self::HeaderSpec>::encode_return(
             Self::FILE_CLASS,
             Self::FILE_SPECIFIER,
-            Self::FILE_SPECFIER_VERSION,
+            Self::FILE_SPECIFIER_VERSION,
         );
         f.fwrite_all(&block).map(|_| md)
     }
     fn upgrade_file(
-        f: File,
-        md: HeaderV1<Self::HeaderSpec>,
+        orig_path: impl AsRef<Path>,
+        orig_file: File,
+        orig_md: HeaderV1<Self::HeaderSpec>,
     ) -> RuntimeResult<(File, Self::Metadata)> {
-        Self::upgrade(f, md)
+        Self::upgrade(orig_path, orig_file, orig_md)
     }
 }

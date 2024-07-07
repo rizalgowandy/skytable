@@ -51,7 +51,7 @@ impl sdss::sdss_r1::SimpleFileSpecV1 for BackupManifestV1 {
     type HeaderSpec = HeaderImplV2;
     const FILE_CLASS: FileClass = FileClass::BackupMetadata;
     const FILE_SPECIFIER: FileSpecifier = FileSpecifier::BackupManifest;
-    const FILE_SPECFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
 }
 
 pub struct BackupManifestMetadata {
