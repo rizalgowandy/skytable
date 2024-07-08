@@ -151,6 +151,10 @@ impl DeltaState {
     pub fn __fractal_take_full_from_data_delta(&self, _token: FractalToken) -> usize {
         self.data_deltas_size.swap(0, Ordering::AcqRel)
     }
+    pub fn __reset(&mut self) {
+        self.data_deltas = Queue::new();
+        self.data_deltas_size.store(0, Ordering::Release);
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]

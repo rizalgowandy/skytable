@@ -130,6 +130,15 @@ impl<'a, Qd: QueryData<'a>> State<'a, Qd> {
     pub fn try_entity_ref_result(&mut self) -> QueryResult<EntityIDRef<'a>> {
         self.try_entity_ref().ok_or(QueryError::QLExpectedEntity)
     }
+    pub fn try_next(&mut self) -> Option<&Token<'a>> {
+        if self.exhausted() {
+            None
+        } else {
+            let i = self.i;
+            self.i += 1;
+            Some(&self.t[i])
+        }
+    }
 }
 
 impl<'a, Qd: QueryData<'a>> State<'a, Qd> {

@@ -41,14 +41,24 @@ use {
             error::StorageError,
             idx::{MTIndex, STIndex, STIndexSeq},
             storage::{
-                common::sdss::sdss_r1::rw::{TrackedReaderContext, TrackedWriter},
+                common::{
+                    interface::fs::File,
+                    sdss::{
+                        self,
+                        sdss_r1::{
+                            rw::{TrackedReaderContext, TrackedWriter},
+                            upgrades,
+                        },
+                    },
+                    versions::FileSpecifierVersion,
+                },
                 common_encoding::r1,
                 v2::raw::{
                     journal::{
                         self, BatchAdapter, BatchAdapterSpec, BatchDriver, JournalAdapterEvent,
                         JournalHeuristics, JournalSettings, JournalStats, RawJournalAdapter,
                     },
-                    spec::ModelDataBatchAofV1,
+                    spec::{FileClass, FileSpecifier, HeaderImplV2},
                 },
             },
             RuntimeResult,
@@ -59,12 +69,42 @@ use {
     sky_macros::TaggedEnum,
     std::{
         cell::RefCell,
-        collections::{hash_map::Entry as HMEntry, HashMap},
+        collections::hash_map::{Entry as HMEntry, HashMap},
         rc::Rc,
     },
 };
 
 pub type ModelAdapter = BatchAdapter<ModelDataAdapter>;
+
+/*
+    metadata spec
+*/
+
+pub struct FSpecModelDataAofV1;
+impl sdss::sdss_r1::SimpleFileSpecV1 for FSpecModelDataAofV1 {
+    type HeaderSpec = HeaderImplV2;
+    const FILE_CLASS: FileClass = FileClass::Batch;
+    const FILE_SPECIFIER: FileSpecifier = FileSpecifier::ModelData;
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(1);
+    fn upgrade(
+        orig_path: impl AsRef<std::path::Path>,
+        f: File,
+        orig_md: sdss::sdss_r1::HeaderV1<Self::HeaderSpec>,
+    ) -> RuntimeResult<(File, sdss::sdss_r1::HeaderV1<Self::HeaderSpec>)> {
+        drop(f);
+        if orig_md.file_specifier_version() == FileSpecifierVersion::__new(0) {
+            // this is rev.0, so we can upgrade it
+            upgrades::upgrade_file_header::<Self>(orig_path, orig_md)
+        } else {
+            if orig_md.file_specifier_version() > Self::FILE_SPECIFIER_VERSION {
+                Err(StorageError::RuntimeUpgradeFailureFileIsNewer.into())
+            } else {
+                // can't be the same version version!
+                unreachable!()
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 local! {
@@ -105,9 +145,11 @@ pub struct ModelDataAdapter;
 #[derive(Debug, PartialEq, Clone, Copy, TaggedEnum)]
 #[repr(u8)]
 /// The kind of batch
-pub enum BatchType {
+pub enum BatchEvent {
     /// a standard batch (with n <= m events; n = Δdata, m = cardinality)
     Standard = 0,
+    /// a full truncate
+    Truncate = 1,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, TaggedEnum)]
@@ -325,8 +367,8 @@ impl<'a> StdModelBatch<'a> {
 }
 
 impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for StdModelBatch<'a> {
-    fn md(&self) -> u64 {
-        BatchType::Standard.dscr_u64()
+    fn md(&self) -> BatchEvent {
+        BatchEvent::Standard
     }
     fn write_direct(
         self,
@@ -354,7 +396,7 @@ impl<'a> FullModel<'a> {
     }
     fn write<const ZERO: bool>(
         self,
-        f: &mut TrackedWriter<ModelDataBatchAofV1>,
+        f: &mut TrackedWriter<FSpecModelDataAofV1>,
     ) -> Result<(), crate::engine::fractal::error::Error> {
         let g = pin();
         let mut row_writer: RowWriter<'_> = RowWriter { f };
@@ -388,8 +430,8 @@ impl<'a> FullModel<'a> {
 }
 
 impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for FullModel<'a> {
-    fn md(&self) -> u64 {
-        BatchType::Standard.dscr_u64()
+    fn md(&self) -> BatchEvent {
+        BatchEvent::Standard
     }
     fn write_direct(
         self,
@@ -397,6 +439,20 @@ impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for FullModel<'a> {
         _: Rc<RefCell<BatchStats>>,
     ) -> RuntimeResult<()> {
         self.write::<false>(f)
+    }
+}
+
+pub struct Truncate;
+impl JournalAdapterEvent<ModelAdapter> for Truncate {
+    fn md(&self) -> <ModelAdapter as RawJournalAdapter>::EventMeta {
+        BatchEvent::Truncate
+    }
+    fn write_direct(
+        self,
+        _: &mut TrackedWriter<<ModelAdapter as RawJournalAdapter>::Spec>,
+        _: <ModelAdapter as RawJournalAdapter>::CommitContext,
+    ) -> RuntimeResult<()> {
+        Ok(())
     }
 }
 
@@ -468,8 +524,8 @@ impl BatchStats {
 
 struct ModelConslidation<'a>(&'a ModelData);
 impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for ModelConslidation<'a> {
-    fn md(&self) -> u64 {
-        BatchType::Standard.dscr_u64()
+    fn md(&self) -> BatchEvent {
+        BatchEvent::Standard
     }
     fn write_direct(
         self,
@@ -481,14 +537,20 @@ impl<'a> JournalAdapterEvent<BatchAdapter<ModelDataAdapter>> for ModelConslidati
 }
 
 impl BatchAdapterSpec for ModelDataAdapter {
-    type Spec = ModelDataBatchAofV1;
+    type Spec = FSpecModelDataAofV1;
     type GlobalState = ModelData;
-    type BatchType = BatchType;
+    type BatchRootType = BatchEvent;
     type EventType = EventType;
     type BatchMetadata = BatchMetadata;
     type BatchState = BatchRestoreState;
     type CommitContext = Rc<RefCell<BatchStats>>;
     type FullSyncCtx<'a> = &'a Self::GlobalState;
+    fn get_event_logic(md: &Self::BatchRootType) -> journal::BatchEventExecutionLogic {
+        match md {
+            BatchEvent::Standard => journal::BatchEventExecutionLogic::General,
+            BatchEvent::Truncate => journal::BatchEventExecutionLogic::Custom,
+        }
+    }
     fn consolidate_batch<'a>(
         writer: &mut ModelDriver,
         ctx: Self::FullSyncCtx<'a>,
@@ -511,21 +573,38 @@ impl BatchAdapterSpec for ModelDataAdapter {
     fn decode_batch_metadata(
         _: &Self::GlobalState,
         f: &mut TrackedReaderContext<Self::Spec>,
-        batch_type: Self::BatchType,
+        batch_type: Self::BatchRootType,
     ) -> RuntimeResult<Self::BatchMetadata> {
         // [pk tag][schema version][column cnt]
         match batch_type {
-            BatchType::Standard => {}
+            BatchEvent::Standard => {
+                let pk_tag = TagUnique::try_from_raw(f.read_block().map(|[b]| b)?)
+                    .ok_or(StorageError::InternalDecodeStructureIllegalData)?;
+                let schema_version = u64::from_le_bytes(f.read_block()?);
+                let column_count = u64::from_le_bytes(f.read_block()?);
+                Ok(BatchMetadata {
+                    pk_tag,
+                    schema_version,
+                    column_count,
+                })
+            }
+            BatchEvent::Truncate => unreachable!(),
         }
-        let pk_tag = TagUnique::try_from_raw(f.read_block().map(|[b]| b)?)
-            .ok_or(StorageError::InternalDecodeStructureIllegalData)?;
-        let schema_version = u64::from_le_bytes(f.read_block()?);
-        let column_count = u64::from_le_bytes(f.read_block()?);
-        Ok(BatchMetadata {
-            pk_tag,
-            schema_version,
-            column_count,
-        })
+    }
+    fn decode_execute_custom(
+        gs: &Self::GlobalState,
+        _f: &mut crate::engine::storage::common::sdss::sdss_r1::rw::TrackedReader<Self::Spec>,
+        event_kind: Self::BatchRootType,
+    ) -> RuntimeResult<()> {
+        match event_kind {
+            BatchEvent::Standard => unreachable!(),
+            BatchEvent::Truncate => {
+                gs.primary_index()
+                    .__raw_index()
+                    .mt_clear(&crossbeam_epoch::pin());
+                Ok(())
+            }
+        }
     }
     fn update_state_for_new_event(
         _: &Self::GlobalState,
@@ -734,7 +813,7 @@ impl BatchAdapterSpec for ModelDataAdapter {
 
 mod restore_impls {
     use {
-        super::BatchMetadata,
+        super::{BatchMetadata, FSpecModelDataAofV1},
         crate::{
             engine::{
                 core::index::PrimaryIndexKey,
@@ -746,7 +825,6 @@ mod restore_impls {
                         obj::cell::{self, StorageCellTypeID},
                         DataSource,
                     },
-                    v2::raw::spec::ModelDataBatchAofV1,
                 },
                 RuntimeResult,
             },
@@ -792,7 +870,7 @@ mod restore_impls {
     }
     pub fn decode_row_data(
         batch_info: &BatchMetadata,
-        f: &mut TrackedReaderContext<ModelDataBatchAofV1>,
+        f: &mut TrackedReaderContext<FSpecModelDataAofV1>,
     ) -> Result<Vec<Datacell>, crate::engine::fractal::error::Error> {
         let mut row = vec![];
         let mut this_col_cnt = batch_info.column_count;
@@ -827,7 +905,7 @@ mod restore_impls {
             Self(StorageError::InternalDecodeStructureCorrupted.into())
         }
     }
-    impl<'a> DataSource for TrackedReaderContext<'a, ModelDataBatchAofV1> {
+    impl<'a> DataSource for TrackedReaderContext<'a, FSpecModelDataAofV1> {
         const RELIABLE_SOURCE: bool = false;
         type Error = ErrorHack;
         fn has_remaining(&self, cnt: usize) -> bool {

@@ -38,13 +38,14 @@ use {
         error::StorageError,
         storage::{
             common::{checksum::SCrc64, sdss::sdss_r1::rw::TrackedReader},
-            v2::raw::{
-                journal::raw::{JournalReaderTraceEvent, JournalWriterTraceEvent},
-                spec::SystemDatabaseV1,
+            v2::{
+                impls::gns_log::FSpecSystemDatabaseV1,
+                raw::journal::raw::{JournalReaderTraceEvent, JournalWriterTraceEvent},
             },
         },
         RuntimeResult,
     },
+    sky_macros::TaggedEnum,
     std::cell::RefCell,
 };
 
@@ -99,20 +100,20 @@ struct DbEventPush<'a>(&'a str);
 struct DbEventPop;
 struct DbEventClear;
 trait SimpleDBEvent: Sized {
-    const OPC: u8;
+    const OPC: SimpleDBOpcode;
     fn write_buffered(self, _: &mut Vec<u8>);
 }
 macro_rules! impl_db_event {
-    ($($ty:ty as $code:expr $(=> $expr:expr)?),*) => {
+    ($($ty:ty as $code:ident $(=> $expr:expr)?),*) => {
         $(impl SimpleDBEvent for $ty {
-            const OPC: u8 = $code;
+            const OPC: SimpleDBOpcode = SimpleDBOpcode::$code;
             fn write_buffered(self, buf: &mut Vec<u8>) { let _ = buf; fn _do_it(s: $ty, b: &mut Vec<u8>, f: impl Fn($ty, &mut Vec<u8>)) { f(s, b) } $(_do_it(self, buf, $expr))? }
         })*
     }
 }
 
 impl_db_event!(
-    DbEventPush<'_> as 0 => |me, buf| {
+    DbEventPush<'_> as NewKey => |me, buf| {
         let length_bytes = (me.0.len() as u64).to_le_bytes();
         let me_bytes = me.0.as_bytes();
         let mut checksum = SCrc64::new();
@@ -122,30 +123,32 @@ impl_db_event!(
         buf.extend(&length_bytes); // length
         buf.extend(me.0.as_bytes()); // payload
     },
-    DbEventPop as 1,
-    DbEventClear as 2
+    DbEventPop as Pop,
+    DbEventClear as Clear
 );
 
 impl<T: SimpleDBEvent> RawJournalAdapterEvent<SimpleDBJournal> for T {
-    fn md(&self) -> u64 {
-        T::OPC as _
+    fn md(&self) -> SimpleDBOpcode {
+        T::OPC
     }
     fn write_buffered(self, buf: &mut Vec<u8>, _: ()) {
         T::write_buffered(self, buf)
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum EventMeta {
-    NewKey,
-    Pop,
-    Clear,
+#[derive(Debug, PartialEq, Clone, Copy, TaggedEnum)]
+#[repr(u8)]
+pub enum SimpleDBOpcode {
+    NewKey = 0,
+    Pop = 1,
+    Clear = 2,
 }
+
 impl RawJournalAdapter for SimpleDBJournal {
     const COMMIT_PREFERENCE: CommitPreference = CommitPreference::Buffered;
-    type Spec = SystemDatabaseV1;
+    type Spec = FSpecSystemDatabaseV1;
     type GlobalState = SimpleDB;
-    type EventMeta = EventMeta;
+    type EventMeta = SimpleDBOpcode;
     type CommitContext = ();
     type Context<'a> = () where Self: 'a;
     type FullSyncCtx<'a> = &'a Self::GlobalState;
@@ -164,9 +167,9 @@ impl RawJournalAdapter for SimpleDBJournal {
     fn enter_context<'a>(_: &'a mut RawJournalWriter<Self>) -> Self::Context<'a> {}
     fn parse_event_meta(meta: u64) -> Option<Self::EventMeta> {
         Some(match meta {
-            0 => EventMeta::NewKey,
-            1 => EventMeta::Pop,
-            2 => EventMeta::Clear,
+            0 => SimpleDBOpcode::NewKey,
+            1 => SimpleDBOpcode::Pop,
+            2 => SimpleDBOpcode::Clear,
             _ => return None,
         })
     }
@@ -185,7 +188,7 @@ impl RawJournalAdapter for SimpleDBJournal {
         _: &mut JournalHeuristics,
     ) -> RuntimeResult<()> {
         match meta {
-            EventMeta::NewKey => {
+            SimpleDBOpcode::NewKey => {
                 let checksum = u64::from_le_bytes(file.read_block()?);
                 let length_u64 = u64::from_le_bytes(file.read_block()?);
                 let length = length_u64 as usize;
@@ -210,8 +213,8 @@ impl RawJournalAdapter for SimpleDBJournal {
                     }
                 }
             }
-            EventMeta::Clear => gs.data.borrow_mut().clear(),
-            EventMeta::Pop => {
+            SimpleDBOpcode::Clear => gs.data.borrow_mut().clear(),
+            SimpleDBOpcode::Pop => {
                 let _ = gs.data.borrow_mut().pop().unwrap();
             }
         }

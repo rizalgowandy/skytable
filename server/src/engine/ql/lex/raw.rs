@@ -290,8 +290,8 @@ macro_rules! flattened_lut {
 				pub const fn as_str(&self) -> &'static str {match self {$(
                     Self::$nested_enum_variant_name => {
                         const NAME_STR: &'static str = stringify!($nested_enum_variant_name);
-                        const NAME_BUF: [u8; { NAME_STR.len() }] = {
-                            let mut buf = [0u8; { NAME_STR.len() }]; let name = NAME_STR.as_bytes();
+                        const NAME_BUF: [u8; NAME_STR.len()] = {
+                            let mut buf = [0u8; NAME_STR.len()]; let name = NAME_STR.as_bytes();
                             buf[0] = name[0].to_ascii_lowercase(); let mut i = 1;
                             while i < NAME_STR.len() { buf[i] = name[i]; i += 1; } buf
                         }; const NAME: &'static str = unsafe { core::str::from_utf8_unchecked(&NAME_BUF) }; NAME
@@ -320,12 +320,18 @@ macro_rules! flattened_lut {
             let mut ret = [(b"".as_slice(), Keyword::Misc(KeywordMisc::Auto)); { $staticpriv::LEN }];
             let mut i = 0;
             $($(
-                let alt_kw = [stringify!($nested_enum_variant_name), $($(stringify!($alternative_name),)*)?];
+                let alt_kw = [stringify!($nested_enum_variant_name).as_bytes(), $($(stringify!($alternative_name).as_bytes(),)*)?];
                 let mut j = 0; let k = if alt_kw.len() == 1 { 1 } else { alt_kw.len() - 1 };
-                while j < k { ret[i] = (alt_kw[j].as_bytes() ,$enum::$variant($nested_enum_name::$nested_enum_variant_name)); i += 1; j += 1; }
+                while j < k { ret[i] = (alt_kw[j] ,$enum::$variant($nested_enum_name::$nested_enum_variant_name)); i += 1; j += 1; }
             )*)*ret
         };
 	}
+}
+
+macro_rules! hibit {
+    ($e:expr) => {
+        $e | (1 << (<u8>::BITS - 1))
+    };
 }
 
 flattened_lut! {
@@ -348,12 +354,16 @@ flattened_lut! {
             #[repr(u8)]
             /// A statement keyword
             pub enum KeywordStmt {
+                // blocking
                 // system
-                Sysctl = 0,
+                Sysctl = hibit!(0),
                 // DDL
-                Create = 1,
-                Alter = 2,
-                Drop = 3,
+                Create = hibit!(1),
+                Alter = hibit!(2),
+                Drop = hibit!(3),
+                // dml
+                Truncate = hibit!(4),
+                // nonblocking
                 // system/DDL misc
                 Use = 4,
                 Inspect = 5,
@@ -367,7 +377,6 @@ flattened_lut! {
                 Exists = 12,
             }
         },
-        /// Hi
         Misc => {
             #[derive(Debug, PartialEq, Clone, Copy)]
             #[repr(u8)]
@@ -432,7 +441,6 @@ flattened_lut! {
                 Value,
                 Primary,
                 // temporarily reserved (will probably be removed in the future)
-                Truncate, // TODO: decide what we want to do with this
             }
         }
     }
@@ -449,13 +457,13 @@ impl Keyword {
     }
     fn compute(key: &[u8]) -> Option<Self> {
         static G: [u8; 78] = [
-            0, 19, 60, 52, 68, 26, 43, 57, 15, 10, 77, 0, 0, 38, 35, 55, 40, 27, 13, 50, 20, 5, 51,
-            53, 34, 62, 22, 43, 0, 9, 8, 0, 28, 35, 22, 0, 33, 1, 34, 44, 9, 14, 0, 76, 70, 30, 29,
-            0, 73, 50, 18, 57, 57, 31, 5, 31, 1, 22, 33, 64, 30, 6, 19, 34, 32, 0, 70, 10, 28, 37,
-            62, 0, 64, 0, 0, 30, 12, 57,
+            0, 0, 0, 23, 43, 74, 0, 50, 11, 26, 2, 0, 59, 4, 37, 24, 29, 33, 65, 50, 67, 53, 23,
+            60, 7, 2, 52, 30, 46, 18, 28, 77, 76, 0, 36, 68, 61, 76, 28, 9, 67, 13, 69, 13, 15, 18,
+            0, 36, 24, 31, 29, 63, 58, 10, 30, 55, 74, 0, 17, 40, 0, 63, 1, 20, 64, 39, 61, 25, 0,
+            3, 17, 11, 67, 64, 23, 32, 15, 63,
         ];
-        static M1: [u8; 11] = *b"H7ulUIcOFSG";
-        static M2: [u8; 11] = *b"7wE0VbAtQQa";
+        static M1: [u8; 11] = *b"XASUQtx6XDe";
+        static M2: [u8; 11] = *b"xYcBjx55y9b";
         let h1 = Self::_sum(key, M1) % G.len();
         let h2 = Self::_sum(key, M2) % G.len();
         let h = (G[h1] + G[h2]) as usize % G.len();
@@ -466,11 +474,11 @@ impl Keyword {
         }
     }
     #[inline(always)]
-    fn _sum(key: &[u8], block: [u8; 11]) -> usize {
+    fn _sum<const N: usize>(key: &[u8], block: [u8; N]) -> usize {
         let mut sum = 0;
         let mut i = 0;
         while i < key.len() {
-            let char = block[i % 11];
+            let char = block[i % N];
             sum += char as usize * (key[i] | 0x20) as usize;
             i += 1;
         }
@@ -480,7 +488,7 @@ impl Keyword {
 
 impl KeywordStmt {
     pub const fn is_blocking(&self) -> bool {
-        self.value_u8() <= Self::Drop.value_u8()
+        self.value_u8() & 0x80 != 0
     }
     pub const NONBLOCKING_COUNT: usize = Self::BLK_NBLK.1;
     const BLK_NBLK: (usize, usize) = {
@@ -492,7 +500,8 @@ impl KeywordStmt {
                 KeywordStmt::Create
                 | KeywordStmt::Alter
                 | KeywordStmt::Drop
-                | KeywordStmt::Sysctl => blk += 1,
+                | KeywordStmt::Sysctl
+                | KeywordStmt::Truncate => blk += 1,
                 KeywordStmt::Use
                 | KeywordStmt::Inspect
                 | KeywordStmt::Describe
@@ -507,4 +516,13 @@ impl KeywordStmt {
         }
         (blk, nb)
     };
+    pub fn raw_code(&self) -> u8 {
+        self.value_u8() & !0x80
+    }
+}
+
+#[test]
+fn blocking_capybara() {
+    assert!(KeywordStmt::Truncate.is_blocking());
+    assert!(!KeywordStmt::Insert.is_blocking());
 }

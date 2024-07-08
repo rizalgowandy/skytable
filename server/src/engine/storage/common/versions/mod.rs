@@ -85,6 +85,9 @@ impl FileSpecifierVersion {
     pub const fn little_endian(&self) -> [u8; 2] {
         self.0.to_le_bytes()
     }
+    pub fn version(&self) -> u16 {
+        self.0
+    }
 }
 
 pub mod v1 {

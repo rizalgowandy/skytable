@@ -26,7 +26,7 @@
 
 use crate::engine::storage::common::{
     sdss::{self, sdss_r1::HeaderV1},
-    versions::{self, DriverVersion, FileSpecifierVersion, ServerVersion},
+    versions::{self, DriverVersion, ServerVersion},
 };
 
 #[allow(unused)]
@@ -76,20 +76,4 @@ impl sdss::sdss_r1::HeaderV1Spec for HeaderImplV2 {
     type FileSpecifier = FileSpecifier;
     const CURRENT_SERVER_VERSION: ServerVersion = versions::v2::V2_SERVER_VERSION;
     const CURRENT_DRIVER_VERSION: DriverVersion = versions::v2::V2_DRIVER_VERSION;
-}
-
-pub struct SystemDatabaseV1;
-impl sdss::sdss_r1::SimpleFileSpecV1 for SystemDatabaseV1 {
-    type HeaderSpec = HeaderImplV2;
-    const FILE_CLASS: FileClass = FileClass::EventLog;
-    const FILE_SPECIFIER: FileSpecifier = FileSpecifier::GlobalNS;
-    const FILE_SPECFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
-}
-
-pub struct ModelDataBatchAofV1;
-impl sdss::sdss_r1::SimpleFileSpecV1 for ModelDataBatchAofV1 {
-    type HeaderSpec = HeaderImplV2;
-    const FILE_CLASS: FileClass = FileClass::Batch;
-    const FILE_SPECIFIER: FileSpecifier = FileSpecifier::ModelData;
-    const FILE_SPECFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
 }

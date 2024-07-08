@@ -30,8 +30,9 @@ use {
             error::StorageError,
             storage::{
                 common::sdss::sdss_r1::rw::TrackedReader,
-                v2::raw::{
-                    journal::{
+                v2::{
+                    impls::gns_log::FSpecSystemDatabaseV1,
+                    raw::journal::{
                         self,
                         raw::{
                             CommitPreference, JournalInitializer, RawJournalAdapterEvent,
@@ -39,7 +40,6 @@ use {
                         },
                         JournalHeuristics, JournalSettings, JournalStats, RawJournalAdapter,
                     },
-                    spec::SystemDatabaseV1,
                 },
             },
             RuntimeResult,
@@ -119,7 +119,7 @@ pub enum CompactDBEventKind {
 
 impl RawJournalAdapter for CompactDBAdapter {
     const COMMIT_PREFERENCE: CommitPreference = CommitPreference::Buffered;
-    type Spec = SystemDatabaseV1;
+    type Spec = FSpecSystemDatabaseV1;
     type GlobalState = CompactDB;
     type Context<'a> = ();
     type CommitContext = ();
@@ -178,7 +178,7 @@ impl RawJournalAdapter for CompactDBAdapter {
 }
 
 fn read_kv(
-    file: &mut TrackedReader<SystemDatabaseV1>,
+    file: &mut TrackedReader<FSpecSystemDatabaseV1>,
     gs: &CompactDB,
 ) -> Result<(), crate::engine::fractal::error::Error> {
     let klen = u64::from_le_bytes(file.read_block()?);
@@ -198,8 +198,8 @@ fn read_kv(
 
 pub struct Insert<'a>(&'a str, &'a str);
 impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Insert<'a> {
-    fn md(&self) -> u64 {
-        CompactDBEventKind::Insert.dscr_u64()
+    fn md(&self) -> CompactDBEventKind {
+        CompactDBEventKind::Insert
     }
     fn write_buffered<'b>(
         self,
@@ -215,8 +215,8 @@ impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Insert<'a> {
 
 pub struct Update<'a>(&'a str, &'a str);
 impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Update<'a> {
-    fn md(&self) -> u64 {
-        CompactDBEventKind::Update.dscr_u64()
+    fn md(&self) -> CompactDBEventKind {
+        CompactDBEventKind::Update
     }
     fn write_buffered<'b>(
         self,
@@ -232,8 +232,8 @@ impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Update<'a> {
 
 pub struct Remove<'a>(&'a str);
 impl<'a> RawJournalAdapterEvent<CompactDBAdapter> for Remove<'a> {
-    fn md(&self) -> u64 {
-        CompactDBEventKind::Remove.dscr_u64()
+    fn md(&self) -> CompactDBEventKind {
+        CompactDBEventKind::Remove
     }
     fn write_buffered<'b>(
         self,

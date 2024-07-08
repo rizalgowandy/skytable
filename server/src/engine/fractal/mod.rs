@@ -166,10 +166,11 @@ pub trait GlobalInstanceLike {
                 let obtained_delta_size = model
                     .delta_state()
                     .__fractal_take_full_from_data_delta(FractalToken::new());
-                self.taskmgr_post_high_priority(Task::new(CriticalTask::WriteBatch(
-                    ModelUniqueID::new(space_name, model_name, model.get_uuid()),
-                    obtained_delta_size,
-                )));
+                self.taskmgr_post_high_priority(Task::new(CriticalTask::WriteBatch {
+                    model_id: ModelUniqueID::new(space_name, model_name, model.get_uuid()),
+                    observed: obtained_delta_size,
+                    runtime_id: model.runtime_id(),
+                }));
             })
         }
     }

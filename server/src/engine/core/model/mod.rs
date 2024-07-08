@@ -81,6 +81,7 @@ impl Model {
 #[derive(Debug)]
 pub struct ModelData {
     uuid: Uuid,
+    runtime_id: u64,
     p_key: RawStr,
     p_tag: FullTag,
     fields: Fields,
@@ -175,6 +176,24 @@ impl ModelData {
         ret.push('}');
         ret
     }
+    pub fn delta_state_mut(&mut self) -> &mut DeltaState {
+        &mut self.delta
+    }
+    /// The `runtime_id` is a critical piece of information in terms of data definition, integrity and consistency. On the surface it isn't much useful
+    /// by itself but it acts as an "unique identifier" for the model; now the model's own entity and UUID is unique, but it doesn't provide uniqueness
+    /// to a model instance. Hence, the runtime ID helps us mark an unique model instance and helps us to invalidate postponed actions which were meant
+    /// to be applied on a previous instance of the model. For example after a truncate operation, postponed actions such as disk syncs and background
+    /// delta resolutions might not make any sense and this runtime ID/signature helps such actions to determine any appropriate recourse.
+    ///
+    /// Note: The delta state also serves a similar purpose (and this might seem confusing) but it's something that is closely related to on-disk
+    /// layouts and relevant routines; the runtime ID on the other hand is only relevant when the database is actually running.
+    pub fn runtime_id(&self) -> u64 {
+        self.runtime_id
+    }
+    /// Move the model instance ahead in time
+    pub fn increment_runtime_id(&mut self) {
+        self.runtime_id += 1;
+    }
 }
 
 impl ModelData {
@@ -187,6 +206,7 @@ impl ModelData {
     ) -> Self {
         let mut slf = Self {
             uuid,
+            runtime_id: 0,
             p_key,
             p_tag,
             fields,

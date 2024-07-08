@@ -113,7 +113,11 @@ impl GenericTask {
 #[derive(Debug)]
 pub enum CriticalTask {
     /// Write a new data batch
-    WriteBatch(ModelUniqueID, usize),
+    WriteBatch {
+        model_id: ModelUniqueID,
+        observed: usize,
+        runtime_id: u64,
+    },
     /// try recovering model ID
     TryModelAutorecover(ModelUniqueID),
     CheckGNSDriver,
@@ -304,12 +308,17 @@ impl FractalMgr {
         &self,
         model_id: ModelUniqueID,
         observed_size: usize,
+        model_runtime_id: u64,
         stats: BatchStats,
         threshold: usize,
     ) {
         self.hp_dispatcher
             .send(Task::with_threshold(
-                CriticalTask::WriteBatch(model_id, observed_size - stats.get_actual()),
+                CriticalTask::WriteBatch {
+                    model_id,
+                    observed: observed_size - stats.get_actual(),
+                    runtime_id: model_runtime_id,
+                },
                 threshold,
             ))
             .unwrap()
@@ -368,14 +377,23 @@ impl FractalMgr {
                     Some(_) | None => {}
                 }
             }
-            CriticalTask::WriteBatch(model_id, observed_size) => {
+            CriticalTask::WriteBatch {
+                model_id,
+                observed,
+                runtime_id,
+            } => {
                 info!("fhp: {model_id} has reached cache capacity. writing to disk");
                 let mdl_read = global.state().namespace().idx_models().read();
                 let mdl = match mdl_read.get(&EntityIDRef::new(
                     model_id.space().into(),
                     model_id.model().into(),
                 )) {
-                    Some(mdl) if mdl.data().get_uuid() == model_id.uuid() => mdl,
+                    Some(mdl)
+                        if mdl.data().get_uuid() == model_id.uuid()
+                            && mdl.data().runtime_id() == runtime_id =>
+                    {
+                        mdl
+                    }
                     Some(_) | None => {
                         // this is a different model with the same entity path or it was deleted but the task was queued
                         return;
@@ -384,12 +402,14 @@ impl FractalMgr {
                 match self.try_write_model_data_batch(
                     ModelUniqueIDRef::from(&model_id),
                     mdl.data(),
-                    observed_size,
+                    observed,
                     mdl.driver(),
                 ) {
                     Ok(()) => {
-                        if observed_size != 0 {
-                            info!("fhp: completed maintenance task for {model_id}, synced={observed_size}")
+                        if observed != 0 {
+                            info!(
+                                "fhp: completed maintenance task for {model_id}, synced={observed}"
+                            )
                         }
                     }
                     Err((err, stats)) => {
@@ -400,7 +420,8 @@ impl FractalMgr {
                         // enqueue again for retrying
                         self.re_enqueue_model_sync(
                             model_id,
-                            observed_size,
+                            observed,
+                            mdl.data().runtime_id(),
                             stats,
                             Self::adjust_threshold(threshold),
                         )
@@ -500,6 +521,7 @@ impl FractalMgr {
                             model.data().get_uuid(),
                         ),
                         observed_len,
+                        model.data().runtime_id(),
                         stats,
                         TASK_THRESHOLD,
                     )

@@ -60,10 +60,9 @@ use {
     },
     impls::{
         backup_manifest::{BackupContext, BackupManifest},
-        gns_log::GNSDriver,
+        gns_log::{FSpecSystemDatabaseV1, GNSDriver},
         mdl_journal::ModelDriver,
     },
-    raw::spec::SystemDatabaseV1,
     std::path::Path,
 };
 
@@ -417,7 +416,7 @@ pub fn restore(settings: RestoreSettings) -> RuntimeResult<()> {
     if !settings.flag_skip_compatibility_check {
         // the compat check is not skipped which means that we can assume that the GNS is readable
         context::set_dmsg("loading metadata from current installation");
-        let real_md = SdssFile::<SystemDatabaseV1>::open(
+        let real_md = SdssFile::<FSpecSystemDatabaseV1>::open(
             if let Some(path) = settings.to.as_deref() {
                 pathbuf!(path, GNS_PATH)
             } else {

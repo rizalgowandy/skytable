@@ -25,21 +25,23 @@
 */
 
 use {
-    super::super::raw::{
-        journal::{EventLogAdapter, EventLogSpec},
-        spec::SystemDatabaseV1,
-    },
+    super::super::raw::journal::{EventLogAdapter, EventLogSpec},
     crate::{
         engine::{
             core::{model::Model, EntityID, GNSData},
             fractal::context,
             storage::{
-                common::{interface::fs::FileSystem, paths_v1},
+                common::{
+                    interface::fs::FileSystem, paths_v1, sdss, versions::FileSpecifierVersion,
+                },
                 common_encoding::r1::impls::gns::GNSEvent,
                 v1,
-                v2::raw::journal::{
-                    self, EventLogDriver, JournalAdapterEvent, JournalHeuristics, JournalSettings,
-                    JournalStats,
+                v2::raw::{
+                    journal::{
+                        self, EventLogDriver, JournalAdapterEvent, JournalHeuristics,
+                        JournalSettings, JournalStats,
+                    },
+                    spec::{FileClass, FileSpecifier, HeaderImplV2},
                 },
             },
             txn::{
@@ -65,6 +67,18 @@ use {
 */
 
 pub type GNSAdapter = EventLogAdapter<GNSEventLog>;
+
+/*
+    metadata spec
+*/
+
+pub struct FSpecSystemDatabaseV1;
+impl sdss::sdss_r1::SimpleFileSpecV1 for FSpecSystemDatabaseV1 {
+    type HeaderSpec = HeaderImplV2;
+    const FILE_CLASS: FileClass = FileClass::EventLog;
+    const FILE_SPECIFIER: FileSpecifier = FileSpecifier::GlobalNS;
+    const FILE_SPECIFIER_VERSION: FileSpecifierVersion = FileSpecifierVersion::__new(0);
+}
 
 #[cfg(test)]
 local! {
@@ -160,7 +174,7 @@ pub fn reinit_full<const INIT_DIRS: bool>(
 }
 
 impl EventLogSpec for GNSEventLog {
-    type Spec = SystemDatabaseV1;
+    type Spec = FSpecSystemDatabaseV1;
     type GlobalState = GNSData;
     type EventMeta = GNSTransactionCode;
     type DecodeDispatch = [fn(&GNSData, &mut JournalHeuristics, Vec<u8>) -> RuntimeResult<()>;
@@ -185,8 +199,8 @@ impl EventLogSpec for GNSEventLog {
 }
 
 impl<T: GNSEvent> JournalAdapterEvent<EventLogAdapter<GNSEventLog>> for T {
-    fn md(&self) -> u64 {
-        <T as GNSTransaction>::CODE.dscr_u64()
+    fn md(&self) -> GNSTransactionCode {
+        <T as GNSTransaction>::CODE
     }
     fn write_buffered(self, b: &mut Vec<u8>, _: ()) {
         #[cfg(test)]

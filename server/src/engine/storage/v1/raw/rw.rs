@@ -141,9 +141,9 @@ impl SDSSFileIO<File> {
     pub fn open<S: sdss::sdss_r1::FileSpecV1<DecodeArgs = ()>>(
         fpath: &str,
     ) -> RuntimeResult<(Self, S::Metadata)> {
-        let mut f = Self::_new(File::open_rw(fpath)?);
-        let v = S::read_metadata(&mut f.f, ())?;
-        Ok((f, v))
+        let f = Self::_new(File::open_rw(fpath)?);
+        let (f, md) = S::prepare_file_open(fpath, f.f, ())?;
+        Ok((SDSSFileIO::new(f), md))
     }
     pub fn into_buffered_reader(self) -> SDSSFileIO<BufferedReader> {
         SDSSFileIO::new(self.f.into_buffered_reader())

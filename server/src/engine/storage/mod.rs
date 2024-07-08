@@ -52,7 +52,7 @@ pub use v2::{
     backup, compact,
     impls::{
         gns_log::GNSDriver,
-        mdl_journal::{BatchStats, ModelDriver},
+        mdl_journal::{BatchStats, ModelDriver, Truncate},
     },
     repair, restore,
 };
