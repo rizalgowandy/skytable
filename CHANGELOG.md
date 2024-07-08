@@ -4,6 +4,14 @@ All changes in this project will be noted in this file.
 
 ## Version 0.8.4
 
+### Additions
+
+- Server:
+  - Added `TRUNCATE MODEL` query (and no, I still have no idea why this wasn't present in the first place. There are some things in the universe that
+  no one knows the answer to. This is one of those things.)
+
+  Also note: `TRUNCATE MODEL` is root only right now.
+
 ### Fixes
 
 - Server:

@@ -24,10 +24,14 @@
  *
 */
 
-use skytable::{
-    query,
-    query::Pipeline,
-    response::{Response, Value},
+use {
+    skytable::{
+        pipe, query,
+        query::Pipeline,
+        response::{Response, Rows, Value},
+        Query, Response,
+    },
+    std::collections::HashMap,
 };
 
 const PIPE_RUNS: usize = 20;
@@ -78,4 +82,78 @@ fn pipe_params() {
         unknown => panic!("expected row, got {unknown:?}"),
     }
     assert_eq!(result[4], Response::Empty);
+}
+
+#[sky_macros::dbtest]
+fn truncate_test() {
+    #[derive(Response, Query)]
+    struct Entry {
+        k: String,
+        v: String,
+    }
+    impl Entry {
+        fn new(k: &str, v: &str) -> Self {
+            Self {
+                k: k.to_string(),
+                v: v.to_string(),
+            }
+        }
+    }
+    let mut db = db!();
+    // init space and model, add data
+    let pipe = pipe!(
+        query!("create space truncation_tests"),
+        query!("create model truncation_tests.entries(k: string, v: string)"),
+        query!(
+            "insert into truncation_tests.entries(?, ?)",
+            Entry::new("world", "hello")
+        ),
+        query!(
+            "insert into truncation_tests.entries(?, ?)",
+            Entry::new("universe", "hello")
+        )
+    );
+    assert!(db
+        .execute_pipeline(&pipe)
+        .unwrap()
+        .into_iter()
+        .all(|resp| resp == Response::Empty));
+    // verify data
+    let rows: Rows<Entry> = db
+        .query_parse(&query!(
+            "select all * from truncation_tests.entries limit ?",
+            u64::MAX
+        ))
+        .unwrap();
+    let rows: HashMap<_, _> = rows
+        .into_rows()
+        .into_iter()
+        .map(|Entry { k, v }| (k, v))
+        .collect();
+    assert_eq!(rows.get("world").unwrap(), "hello");
+    assert_eq!(rows.get("universe").unwrap(), "hello");
+    // truncate
+    db.query_parse::<()>(&query!("truncate model truncation_tests.entries"))
+        .unwrap();
+    // verify empty
+    let rows: Rows<Entry> = db
+        .query_parse(&query!(
+            "select all * from truncation_tests.entries limit ?",
+            u64::MAX
+        ))
+        .unwrap();
+    assert_eq!(rows.len(), 0);
+    // drop space & model
+    db.query_parse::<()>(&query!("drop space allow not empty truncation_tests"))
+        .unwrap();
+}
+
+#[sky_macros::dbtest(switch_user(username = "sneaky_guy"))]
+fn truncate_is_root_only() {
+    let mut db = db!();
+    assert_eq!(
+        db.query(&query!("truncate model truncation_tests.entries"))
+            .unwrap(),
+        Response::Error(5)
+    );
 }
