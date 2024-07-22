@@ -25,7 +25,7 @@
 */
 
 use {
-    crate::engine::data::lit::Lit,
+    crate::engine::data::{cell::Datacell, lit::Lit},
     core::{borrow::Borrow, fmt, ops::Deref, str},
 };
 
@@ -117,7 +117,8 @@ impl<'a> Borrow<[u8]> for Ident<'a> {
     token
 */
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(Clone))]
 pub enum Token<'a> {
     Symbol(Symbol),
     Keyword(Keyword),
@@ -126,6 +127,7 @@ pub enum Token<'a> {
     /// A comma that can be ignored (used for fuzzing)
     IgnorableComma,
     Lit(Lit<'a>), // literal
+    DCList(Vec<Datacell>),
 }
 
 impl<'a> Token<'a> {
@@ -147,6 +149,9 @@ impl<'a> ToString for Token<'a> {
             Self::Keyword(k) => k.to_string(),
             Self::Ident(id) => id.to_string(),
             Self::Lit(l) => l.to_string(),
+            Self::DCList(dc_lst) => {
+                format!("{dc_lst:?}")
+            }
             #[cfg(test)]
             Self::IgnorableComma => "[IGNORE_COMMA]".to_owned(),
         }

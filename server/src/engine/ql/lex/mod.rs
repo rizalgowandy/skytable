@@ -153,8 +153,8 @@ mod insecure_impl {
 
     impl<'a> InsecureLexer<'a> {
         pub fn lex(src: &'a [u8]) -> QueryResult<Vec<Token<'a>>> {
-            let slf = Self { l: Lexer::new(src) };
-            slf._lex()
+            let lexer = Self { l: Lexer::new(src) };
+            lexer._lex()
         }
         pub(crate) fn _lex(mut self) -> QueryResult<Vec<Token<'a>>> {
             while !self.l.token_buffer.eof() & self.l.no_error() {
@@ -363,6 +363,26 @@ impl<'a> SecureLexer<'a> {
 }
 
 impl<'a> SecureLexer<'a> {
+    fn _compute_param_parse_target(param_buffer: &mut BufferedScanner) -> usize {
+        // find target
+        let ecc_code = scan_param::SCAN_PARAM.len() - 1;
+        let target_code = param_buffer.rounded_cursor_value();
+        let target_fn = target_code.min(ecc_code as u8);
+        // forward if we have target
+        unsafe { param_buffer.incr_cursor_if(target_code == target_fn) }
+        // check requirements
+        let has_enough =
+            param_buffer.has_left(scan_param::SCAN_PARAM_EXPECT[target_fn as usize] as _);
+        let final_target = (has_enough as u8 * target_fn) | (!has_enough as u8 * ecc_code as u8);
+        // exec
+        let final_target = final_target as usize;
+        unsafe {
+            if final_target >= scan_param::SCAN_PARAM.len() {
+                impossible!()
+            }
+        }
+        final_target
+    }
     fn _lex(mut self) -> QueryResult<Vec<Token<'a>>> {
         while self.l.no_error() & !self.l.token_buffer.eof() {
             let b = unsafe {
@@ -377,31 +397,10 @@ impl<'a> SecureLexer<'a> {
                         // UNSAFE(@ohsayan): loop invariant
                         self.l.token_buffer.incr_cursor()
                     }
-                    // find target
-                    let ecc_code = SCAN_PARAM.len() - 1;
-                    let target_code = self.param_buffer.rounded_cursor_value();
-                    let target_fn = target_code.min(ecc_code as u8);
-                    // forward if we have target
-                    unsafe {
-                        self.param_buffer
-                            .incr_cursor_by((target_code == target_fn) as _)
-                    }
-                    // check requirements
-                    let has_enough = self
-                        .param_buffer
-                        .has_left(SCAN_PARAM_EXPECT[target_fn as usize] as _);
-                    let final_target =
-                        (has_enough as u8 * target_fn) | (!has_enough as u8 * ecc_code as u8);
-                    // exec
-                    let final_target = final_target as usize;
-                    unsafe {
-                        if final_target >= SCAN_PARAM.len() {
-                            impossible!()
-                        }
-                    }
+                    let final_target = Self::_compute_param_parse_target(&mut self.param_buffer);
                     unsafe {
                         // UNSAFE(@ohsayan): our computation above ensures that we're meeting the expected target
-                        SCAN_PARAM[final_target](&mut self)
+                        scan_param::SCAN_PARAM[final_target](&mut self)
                     }
                 }
                 b' ' | b'\t' | b'\n' => self.l.trim_ahead(),
@@ -415,91 +414,255 @@ impl<'a> SecureLexer<'a> {
     }
 }
 
-const SCAN_PARAM_EXPECT: [u8; 8] = [0, 1, 2, 2, 2, 2, 2, 0];
-static SCAN_PARAM: [unsafe fn(&mut SecureLexer); 8] = unsafe {
-    [
-        // null
-        |s| s.l.push_token(Token![null]),
-        // bool
-        |slf| {
-            let nb = slf.param_buffer.next_byte();
-            slf.l.push_token(Token::Lit(Lit::new_bool(nb == 1)));
-            if nb > 1 {
-                slf.l.set_error(QueryError::LexInvalidInput);
-            }
-        },
-        // uint
-        |slf| match slf
+mod scan_param {
+    use crate::engine::{
+        data::{cell::Datacell, lit::Lit},
+        error::QueryError,
+        ql::lex::{SecureLexer, Token},
+    };
+    pub const SCAN_PARAM_EXPECT: [u8; 9] = [0, 1, 2, 2, 2, 2, 2, 0, 1];
+    pub static SCAN_PARAM: [unsafe fn(&mut SecureLexer); 9] = unsafe {
+        [
+            |l| l.l.tokens.push(Token![null]),
+            |l| {
+                scan_bool(l, |lexer, boolean| {
+                    lexer.l.tokens.push(Token::from(Lit::new_bool(boolean)))
+                })
+            },
+            |l| {
+                scan_uint(l, |lexer, uint| {
+                    lexer.l.tokens.push(Token::from(Lit::new_uint(uint)))
+                })
+            },
+            |l| {
+                scan_sint(l, |lexer, sint| {
+                    lexer.l.tokens.push(Token::from(Lit::new_sint(sint)))
+                })
+            },
+            |l| {
+                scan_float(l, |lexer, float| {
+                    lexer.l.tokens.push(Token::from(Lit::new_float(float)))
+                })
+            },
+            |l| {
+                scan_binary(l, |lexer, bin| {
+                    lexer.l.tokens.push(Token::from(Lit::new_bin(bin)))
+                })
+            },
+            |l| {
+                scan_str(l, |lexer, string| {
+                    lexer.l.tokens.push(Token::from(Lit::new_str(string)))
+                })
+            },
+            scan_list,
+            |l| l.l.set_error(QueryError::LexInvalidInput),
+        ]
+    };
+    pub static SCAN_DC: [unsafe fn(&mut SecureLexer, &mut Vec<Datacell>); 8] = unsafe {
+        [
+            |_, lst| lst.push(Datacell::null()),
+            |l, lst| scan_bool(l, |_, boolean| lst.push(Datacell::new_bool(boolean))),
+            |l, lst| scan_uint(l, |_, uint| lst.push(Datacell::new_uint_default(uint))),
+            |l, lst| scan_sint(l, |_, sint| lst.push(Datacell::new_sint_default(sint))),
+            |l, lst| scan_float(l, |_, float| lst.push(Datacell::new_float_default(float))),
+            |l, lst| {
+                scan_binary(l, |_, bin| {
+                    lst.push(Datacell::new_bin(bin.to_owned().into_boxed_slice()))
+                })
+            },
+            |l, lst| {
+                scan_str(l, |_, string| {
+                    lst.push(Datacell::new_str(string.to_owned().into_boxed_str()))
+                })
+            },
+            |l, _| l.l.set_error(QueryError::LexInvalidInput),
+        ]
+    };
+    /*
+        scan impls
+    */
+    #[inline(always)]
+    unsafe fn scan_bool<'a>(
+        lexer: &mut SecureLexer<'a>,
+        callback: impl FnOnce(&mut SecureLexer<'a>, bool),
+    ) {
+        let nb = lexer.param_buffer.next_byte();
+        callback(lexer, nb == 1);
+        if nb > 1 {
+            lexer.l.set_error(QueryError::LexInvalidInput);
+        }
+    }
+    #[inline(always)]
+    unsafe fn scan_uint<'a>(
+        lexer: &mut SecureLexer<'a>,
+        callback: impl FnOnce(&mut SecureLexer<'a>, u64),
+    ) {
+        match lexer
             .param_buffer
             .try_next_ascii_u64_lf_separated_or_restore_cursor()
         {
-            Some(int) => slf.l.push_token(Lit::new_uint(int)),
-            None => slf.l.set_error(QueryError::LexInvalidInput),
-        },
-        // sint
-        |slf| {
-            let (okay, int) = slf.param_buffer.try_next_ascii_i64_separated_by::<b'\n'>();
-            if okay {
-                slf.l.push_token(Lit::new_sint(int))
-            } else {
-                slf.l.set_error(QueryError::LexInvalidInput)
+            Some(int) => callback(lexer, int),
+            None => lexer.l.set_error(QueryError::LexInvalidInput),
+        }
+    }
+    #[inline(always)]
+    unsafe fn scan_sint<'a>(
+        lexer: &mut SecureLexer<'a>,
+        callback: impl FnOnce(&mut SecureLexer<'a>, i64),
+    ) {
+        let (okay, int) = lexer
+            .param_buffer
+            .try_next_ascii_i64_separated_by::<b'\n'>();
+        if okay {
+            callback(lexer, int)
+        } else {
+            lexer.l.set_error(QueryError::LexInvalidInput)
+        }
+    }
+    #[inline(always)]
+    unsafe fn scan_float<'a>(
+        lexer: &mut SecureLexer<'a>,
+        callback: impl FnOnce(&mut SecureLexer<'a>, f64),
+    ) {
+        let start = lexer.param_buffer.cursor();
+        while !lexer.param_buffer.eof() {
+            let cursor = lexer.param_buffer.cursor();
+            let byte = lexer.param_buffer.next_byte();
+            if byte == b'\n' {
+                match core::str::from_utf8(&lexer.param_buffer.inner_buffer()[start..cursor])
+                    .map(core::str::FromStr::from_str)
+                {
+                    Ok(Ok(f)) => callback(lexer, f),
+                    _ => lexer.l.set_error(QueryError::LexInvalidInput),
+                }
+                return;
             }
-        },
-        // float
-        |slf| {
-            let start = slf.param_buffer.cursor();
-            while !slf.param_buffer.eof() {
-                let cursor = slf.param_buffer.cursor();
-                let byte = slf.param_buffer.next_byte();
-                if byte == b'\n' {
-                    match core::str::from_utf8(&slf.param_buffer.inner_buffer()[start..cursor])
-                        .map(core::str::FromStr::from_str)
-                    {
-                        Ok(Ok(f)) => slf.l.push_token(Lit::new_float(f)),
-                        _ => slf.l.set_error(QueryError::LexInvalidInput),
+        }
+        lexer.l.set_error(QueryError::LexInvalidInput)
+    }
+    #[inline(always)]
+    unsafe fn scan_binary<'a>(
+        lexer: &mut SecureLexer<'a>,
+        callback: impl FnOnce(&mut SecureLexer<'a>, &'a [u8]),
+    ) {
+        let Some(size_of_body) = lexer
+            .param_buffer
+            .try_next_ascii_u64_lf_separated_or_restore_cursor()
+        else {
+            lexer.l.set_error(QueryError::LexInvalidInput);
+            return;
+        };
+        match lexer
+            .param_buffer
+            .try_next_variable_block(size_of_body as usize)
+        {
+            Some(block) => callback(lexer, block),
+            None => lexer.l.set_error(QueryError::LexInvalidInput),
+        }
+    }
+    #[inline(always)]
+    unsafe fn scan_str<'a>(
+        lexer: &mut SecureLexer<'a>,
+        callback: impl FnOnce(&mut SecureLexer<'a>, &'a str),
+    ) {
+        let Some(size_of_body) = lexer
+            .param_buffer
+            .try_next_ascii_u64_lf_separated_or_restore_cursor()
+        else {
+            lexer.l.set_error(QueryError::LexInvalidInput);
+            return;
+        };
+        match lexer
+            .param_buffer
+            .try_next_variable_block(size_of_body as usize)
+            .map(core::str::from_utf8)
+        {
+            Some(Ok(s)) => callback(lexer, s),
+            _ => lexer.l.set_error(QueryError::LexInvalidInput),
+        }
+    }
+    /*
+        list scan
+    */
+    pub const PROTO_PARAM_SYM_LIST_OPEN: u8 = b'\x07';
+    pub const PROTO_PARAM_SYM_LIST_CLOSE: u8 = b']';
+    pub fn scan_list(lx: &mut SecureLexer) {
+        let mut pending_count = 1usize;
+        let mut stack = vec![];
+        let mut current_l = vec![];
+        while pending_count != 0 && !lx.param_buffer.eof() && lx.l.no_error() {
+            match unsafe {
+                // UNSAFE(@ohsayan): we just verified that we haven't reached EOF at the loop invariant condition
+                lx.param_buffer.deref_cursor()
+            } {
+                PROTO_PARAM_SYM_LIST_OPEN => {
+                    // opening of a list; need to start processing this before continuing with current
+                    stack.push(current_l);
+                    current_l = vec![];
+                    unsafe {
+                        // UNSAFE(@ohsayan): we haven't forwarded the cursor yet and hence we're still not at EOF, so this is correct
+                        lx.param_buffer.incr_cursor();
                     }
-                    return;
+                    pending_count += 1;
+                }
+                PROTO_PARAM_SYM_LIST_CLOSE => {
+                    // closing of a list; finish processing earlier list or finish
+                    pending_count -= 1;
+                    unsafe {
+                        // UNSAFE(@ohsayan): we haven't forwarded the cursor yet and hence we're still not at EOF, so this is correct
+                        lx.param_buffer.incr_cursor();
+                    }
+                    match stack.pop() {
+                        None => break,
+                        Some(mut parent) => {
+                            parent.push(Datacell::new_list(current_l));
+                            current_l = parent;
+                        }
+                    }
+                }
+                _ => {
+                    // a data element
+                    let final_target =
+                        SecureLexer::_compute_param_parse_target(&mut lx.param_buffer);
+                    unsafe {
+                        // UNSAFE(@ohsayan): our computation above ensures that we're meeting the expected target
+                        SCAN_DC[final_target](lx, &mut current_l)
+                    }
                 }
             }
-            slf.l.set_error(QueryError::LexInvalidInput)
-        },
-        // binary
-        |slf| {
-            let Some(size_of_body) = slf
-                .param_buffer
-                .try_next_ascii_u64_lf_separated_or_restore_cursor()
-            else {
-                slf.l.set_error(QueryError::LexInvalidInput);
-                return;
-            };
-            match slf
-                .param_buffer
-                .try_next_variable_block(size_of_body as usize)
-            {
-                Some(block) => slf.l.push_token(Lit::new_bin(block)),
-                None => slf.l.set_error(QueryError::LexInvalidInput),
-            }
-        },
-        // string
-        |slf| {
-            let Some(size_of_body) = slf
-                .param_buffer
-                .try_next_ascii_u64_lf_separated_or_restore_cursor()
-            else {
-                slf.l.set_error(QueryError::LexInvalidInput);
-                return;
-            };
-            match slf
-                .param_buffer
-                .try_next_variable_block(size_of_body as usize)
-                .map(core::str::from_utf8)
-            {
-                // TODO(@ohsayan): obliterate this alloc
-                Some(Ok(s)) => slf.l.push_token(Lit::new_string(s.to_owned())),
-                _ => slf.l.set_error(QueryError::LexInvalidInput),
-            }
-        },
-        // ecc
-        |s| s.l.set_error(QueryError::LexInvalidInput),
-    ]
-};
+        }
+        if pending_count == 0 && lx.l.no_error() {
+            lx.l.tokens.push(Token::DCList(current_l));
+        } else {
+            lx.l.set_error(QueryError::LexInvalidInput)
+        }
+    }
+}
+
+#[test]
+fn try_this_list() {
+    use crate::engine::data::cell::Datacell;
+    let params = format!(
+        "{}\x00\x01\x01\x021234\n\x03-1234\n\x041234.5678\n{}\x0513\nbinarywithlf\n\x065\nsayan]{}]]",
+        char::from(scan_param::PROTO_PARAM_SYM_LIST_OPEN),
+        char::from(scan_param::PROTO_PARAM_SYM_LIST_OPEN),
+        char::from(scan_param::PROTO_PARAM_SYM_LIST_OPEN),
+    );
+    let sec_lex = SecureLexer::new_with_segments(b"?", params.as_bytes());
+    let tokens = sec_lex.lex().unwrap();
+    assert_eq!(
+        tokens[0],
+        Token::DCList(vec![
+            Datacell::null(),
+            Datacell::new_bool(true),
+            Datacell::new_uint_default(1234),
+            Datacell::new_sint_default(-1234),
+            Datacell::new_float_default(1234.5678),
+            Datacell::new_list(vec![
+                Datacell::new_bin(b"binarywithlf\n".to_vec().into_boxed_slice()),
+                Datacell::new_str("sayan".to_string().into_boxed_str())
+            ]),
+            Datacell::new_list(vec![]),
+        ])
+    )
+}
