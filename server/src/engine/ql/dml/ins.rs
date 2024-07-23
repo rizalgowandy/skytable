@@ -212,23 +212,10 @@ pub(super) fn parse_data_tuple_syntax<'a, Qd: QueryData<'a>>(
                 data.push(l.into());
             }
             Token![null] => data.push(Datacell::null()),
-            Token::DCList(dcl) => unsafe {
-                /*
-                    UNSAFE(@ohsayan): nasty nasty stuff here because technically nothing here is guaranteeing that no
-                    two threads will be doing this in parallel. But the important bit is that two thrads are NEVER used
-                    to decode one token stream so doing crazy things to just enforce statical guarantee for a property
-                    we already know is guaranteed is inherently pointless. Hence, what we do is: swap the pointers!
-
-                    TODO(@ohsayan): BUT I MUST EMPHASIZE FOR GOODNESS SAKE IS THAT THIS IS JUST VERY AWFUL. IT'S PLAIN BUTCHERY
-                    OF BORROWCK'S RULES AND WE *MUST* DO SOMETHING TO `ast::State` to make this semantically better.
-
-                    But the way `State` works in a way does implicitly guarantee that this isn't easily breakable, but yes
-                    transmuting lifetimes are the way to completely break this.
-
-                    SCARY STUFF!
-                */
-                data.push(Datacell::new_list(core::mem::take(&mut *dcl.get())))
-            },
+            Token::DCList(dcl) => data.push(Datacell::new_list(unsafe {
+                // UNSAFE(@ohsayan): single threaded operation; no parallel access to token stream. see the note `Token::take_list`
+                Token::take_list(dcl)
+            })),
             Token![@] if state.cursor_signature_match_fn_arity0_rounded() => match unsafe {
                 // UNSAFE(@ohsayan): Just verified at guard
                 handle_func_sub(state)

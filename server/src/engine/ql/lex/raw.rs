@@ -197,6 +197,25 @@ impl<'a> Token<'a> {
     pub fn dc_list(dc_l: Vec<Datacell>) -> Self {
         Self::DCList(UnsafeCell::new(dc_l))
     }
+    pub unsafe fn take_list(dcl: &UnsafeCell<Vec<Datacell>>) -> Vec<Datacell> {
+        unsafe {
+            /*
+                UNSAFE(@ohsayan): nasty nasty stuff here because technically nothing here is guaranteeing that no
+                two threads will be doing this in parallel. But the important bit is that two thrads are NEVER used
+                to decode one token stream so doing crazy things to just enforce statical guarantee for a property
+                we already know is guaranteed is inherently pointless. Hence, what we do is: swap the pointers!
+
+                TODO(@ohsayan): BUT I MUST EMPHASIZE FOR GOODNESS SAKE IS THAT THIS IS JUST VERY AWFUL. IT'S PLAIN BUTCHERY
+                OF BORROWCK'S RULES AND WE *MUST* DO SOMETHING TO `ast::State` to make this semantically better.
+
+                But the way `State` works in a way does implicitly guarantee that this isn't easily breakable, but yes
+                transmuting lifetimes are the way to completely break this.
+
+                SCARY STUFF!
+            */
+            core::mem::take(&mut *dcl.get())
+        }
+    }
 }
 
 impl<'a> ToString for Token<'a> {

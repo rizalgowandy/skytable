@@ -1031,3 +1031,49 @@ mod truncate {
         );
     }
 }
+
+mod insert_dyn_list {
+    use crate::engine::{
+        data::cell::Datacell,
+        ql::{
+            ast::parse_ast_node_full,
+            dml::ins::InsertStatement,
+            lex::{PROTO_PARAM_SYM_LIST_CLOSE, PROTO_PARAM_SYM_LIST_OPEN},
+            tests::lex_secure,
+        },
+    };
+
+    const LIST_CLOSE: char = PROTO_PARAM_SYM_LIST_CLOSE as char;
+    const LIST_OPEN: char = PROTO_PARAM_SYM_LIST_OPEN as char;
+
+    #[test]
+    fn insert_dyn_list() {
+        let query = "insert into twitter.users (?, ?)";
+        let params = format!(
+            "{query}\x065\nsayan{LIST_OPEN}\x00\x01\x01\x021234\n\x03-1234\n\x041234.5678\n{LIST_OPEN}\x0513\nbinarywithlf\n\x065\nsayan{LIST_CLOSE}{LIST_OPEN}{LIST_CLOSE}{LIST_CLOSE}",
+        );
+        let x = lex_secure(params.as_bytes(), query.len()).unwrap();
+        let r = parse_ast_node_full::<InsertStatement>(&x[1..]).unwrap();
+        let e = InsertStatement::new(
+            ("twitter", "users").into(),
+            into_array_nullable![
+                "sayan",
+                Datacell::new_list(vec![
+                    Datacell::null(),
+                    Datacell::new_bool(true),
+                    Datacell::new_uint_default(1234),
+                    Datacell::new_sint_default(-1234),
+                    Datacell::new_float_default(1234.5678),
+                    Datacell::new_list(vec![
+                        Datacell::new_bin(b"binarywithlf\n".to_vec().into_boxed_slice()),
+                        Datacell::new_str("sayan".to_string().into_boxed_str())
+                    ]),
+                    Datacell::new_list(vec![]),
+                ])
+            ]
+            .to_vec()
+            .into(),
+        );
+        assert_eq!(e, r);
+    }
+}

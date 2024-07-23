@@ -25,9 +25,12 @@
 */
 
 mod raw;
-#[cfg(test)]
-pub use insecure_impl::InsecureLexer;
 pub use raw::{Ident, Keyword, KeywordMisc, KeywordStmt, Symbol, Token};
+#[cfg(test)]
+pub use {
+    insecure_impl::InsecureLexer,
+    scan_param::{PROTO_PARAM_SYM_LIST_CLOSE, PROTO_PARAM_SYM_LIST_OPEN},
+};
 
 use {
     crate::engine::{
