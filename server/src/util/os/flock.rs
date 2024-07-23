@@ -61,7 +61,7 @@ impl FileLock {
             let mut overlapped = OVERLAPPED::default();
             unsafe {
                 LockFileEx(
-                    HANDLE(handle as isize),
+                    HANDLE(handle),
                     LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
                     0,
                     u32::MAX as u32,
@@ -71,7 +71,7 @@ impl FileLock {
             }?;
             return Ok(Self {
                 _file: file,
-                handle: HANDLE(handle as isize),
+                handle: HANDLE(handle),
             });
         }
         #[cfg(unix)]
