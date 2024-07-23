@@ -79,6 +79,7 @@ pub trait JournalAdapter {
     type GlobalState;
     /// The transactional impl that makes use of this journal, should define it's error type
     type Error;
+    #[allow(dead_code)]
     /// Encode a journal event into a blob
     fn encode(event: Self::JournalEvent) -> Box<[u8]>;
     /// Decode a journal event and apply it to the global state

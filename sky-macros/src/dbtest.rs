@@ -145,7 +145,7 @@ fn parse_attrs(attrs: AttributeArgs) -> TestSetup {
                 }
                 unknown => panic!("unknown nested attribute `{unknown}`"),
             },
-            AttributeKind::Path(_) | AttributeKind::Lit(_) => {
+            AttributeKind::Path { .. } | AttributeKind::Lit { .. } => {
                 panic!("unexpected tokens")
             }
         }

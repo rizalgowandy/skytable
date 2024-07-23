@@ -154,39 +154,51 @@ impl IntoError for Error {
 
 pub trait ErrorContext<T> {
     // no inherit
+    #[allow(dead_code)]
     /// set the origin (do not inherit parent or local)
     fn set_origin(self, origin: Subsystem) -> Result<T, Error>;
     /// set the dmsg (do not inherit parent or local)
     fn set_dmsg(self, dmsg: impl Into<Dmsg>) -> Result<T, Error>;
+    #[allow(dead_code)]
     fn set_dmsg_fn<F, M>(self, d: F) -> Result<T, Error>
     where
         F: Fn() -> M,
         M: Into<Dmsg>,
         Self: Sized;
+    #[allow(dead_code)]
     /// set the origin and dmsg (do not inherit)
     fn set_ctx(self, origin: Subsystem, dmsg: impl Into<Dmsg>) -> Result<T, Error>;
     // inherit parent
+    #[allow(dead_code)]
     /// set the origin (inherit rest from parent)
     fn ip_set_origin(self, origin: Subsystem) -> Result<T, Error>;
+    #[allow(dead_code)]
     /// set the dmsg (inherit rest from origin)
     fn ip_set_dmsg(self, dmsg: impl Into<Dmsg>) -> Result<T, Error>;
     // inherit local
+    #[allow(dead_code)]
     /// set the origin (inherit rest from local)
     fn il_set_origin(self, origin: Subsystem) -> Result<T, Error>;
+    #[allow(dead_code)]
     /// set the dmsg (inherit rest from local)
     fn il_set_dmsg(self, dmsg: impl Into<Dmsg>) -> Result<T, Error>;
+    #[allow(dead_code)]
     /// inherit everything from local (assuming this has no context)
     fn inherit_local(self) -> Result<T, Error>;
     // inherit any
+    #[allow(dead_code)]
     /// set the origin (inherit rest from either parent, then local)
     fn inherit_set_origin(self, origin: Subsystem) -> Result<T, Error>;
     /// set the dmsg (inherit rest from either parent, then local)
     fn inherit_set_dmsg(self, dmsg: impl Into<Dmsg>) -> Result<T, Error>;
     // orphan
+    #[allow(dead_code)]
     /// orphan the entire context (if any)
     fn orphan(self) -> Result<T, Error>;
+    #[allow(dead_code)]
     /// orphan the origin (if any)
     fn orphan_origin(self) -> Result<T, Error>;
+    #[allow(dead_code)]
     /// orphan the dmsg (if any)
     fn orphan_dmsg(self) -> Result<T, Error>;
 }

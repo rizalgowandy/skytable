@@ -48,8 +48,8 @@ fn rkey<T>(
 
 pub struct RestoredSystemDatabase {
     pub users: HashMap<Box<str>, Box<[u8]>>,
-    pub startup_counter: u64,
-    pub settings_version: u64,
+    pub _startup_counter: u64,
+    pub _settings_version: u64,
 }
 
 impl RestoredSystemDatabase {
@@ -65,8 +65,8 @@ impl RestoredSystemDatabase {
     ) -> Self {
         Self {
             users,
-            startup_counter,
-            settings_version,
+            _startup_counter: startup_counter,
+            _settings_version: settings_version,
         }
     }
     pub fn restore(name: &str) -> RuntimeResult<Self> {

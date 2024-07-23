@@ -357,8 +357,6 @@ pub trait QueryData<'a> {
     /// ## Safety
     /// The current token must match the signature of a lit
     unsafe fn read_data_type(&mut self, tok: &'a Token) -> Datacell;
-    /// Returns true if the data source has enough data
-    fn nonzero(&self) -> bool;
 }
 
 #[derive(Debug)]
@@ -382,9 +380,5 @@ impl<'a> QueryData<'a> for InplaceData {
     #[inline(always)]
     unsafe fn read_data_type(&mut self, tok: &'a Token) -> Datacell {
         Datacell::from(<Self as QueryData>::read_lit(self, tok))
-    }
-    #[inline(always)]
-    fn nonzero(&self) -> bool {
-        true
     }
 }

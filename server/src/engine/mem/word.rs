@@ -167,6 +167,7 @@ pub trait TwordNNN: Sized {
     fn twordnnn_store_native_full(a: usize, b: usize, c: usize) -> Self;
     fn twordnnn_load_native_full(&self) -> [usize; 3];
     // promotions
+    #[allow(dead_code)]
     fn tword_promote<W: TwordNNN>(&self) -> W {
         let [a, b, c] = self.twordnnn_load_native_full();
         <W as TwordNNN>::twordnnn_store_native_full(a, b, c)
@@ -226,6 +227,7 @@ impl TwordNNN for NativeTword {
 pub trait QwordNNNN: Sized {
     const QWORDNNNN_FROM_UPPER: bool = size_of::<Self>() > size_of::<[usize; 4]>();
     fn qwordnnnn_store_native_full(a: usize, b: usize, c: usize, d: usize) -> Self;
+    #[allow(dead_code)]
     fn qwordnnnn_store_qw_qw(a: u64, b: u64) -> Self {
         #[cfg(target_pointer_width = "32")]
         {
@@ -238,6 +240,7 @@ pub trait QwordNNNN: Sized {
             Self::qwordnnnn_store_native_full(a as usize, b as usize, 0, 0)
         }
     }
+    #[allow(dead_code)]
     fn qwordnnnn_store_qw_nw_nw(a: u64, b: usize, c: usize) -> Self {
         #[cfg(target_pointer_width = "32")]
         {
@@ -250,6 +253,7 @@ pub trait QwordNNNN: Sized {
         }
     }
     fn qwordnnnn_load_native_full(&self) -> [usize; 4];
+    #[allow(dead_code)]
     fn qwordnnnn_load_qw_qw(&self) -> [u64; 2] {
         let [a, b, c, d] = self.qwordnnnn_load_native_full();
         #[cfg(target_pointer_width = "32")]
@@ -262,6 +266,7 @@ pub trait QwordNNNN: Sized {
             [a as u64, b as u64]
         }
     }
+    #[allow(dead_code)]
     fn qwordnnnn_load_qw_nw_nw(&self) -> (u64, usize, usize) {
         let [a, b, c, d] = self.qwordnnnn_load_native_full();
         #[cfg(target_pointer_width = "32")]
