@@ -130,18 +130,6 @@ pub enum Token<'a> {
     DCList(UnsafeCell<Vec<Datacell>>),
 }
 
-impl<'a> Drop for Token<'a> {
-    fn drop(&mut self) {
-        match self {
-            Self::DCList(dcl) => unsafe {
-                // UNSAFE(@ohsayan): we're cleaning up the value. so all good!
-                core::ptr::drop_in_place(dcl)
-            },
-            _ => {}
-        }
-    }
-}
-
 impl<'a> PartialEq for Token<'a> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

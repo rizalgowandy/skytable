@@ -181,5 +181,5 @@ fn insert_list() {
         ))
         .unwrap();
     assert_eq!(username, "sayan");
-    assert_eq!(bookmarks, data);
+    assert_eq!(&bookmarks[..], data);
 }
