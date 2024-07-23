@@ -632,7 +632,7 @@ mod scan_param {
             }
         }
         if pending_count == 0 && lx.l.no_error() {
-            lx.l.tokens.push(Token::DCList(current_l));
+            lx.l.tokens.push(Token::dc_list(current_l));
         } else {
             lx.l.set_error(QueryError::LexInvalidInput)
         }
@@ -652,7 +652,7 @@ fn try_this_list() {
     let tokens = sec_lex.lex().unwrap();
     assert_eq!(
         tokens[0],
-        Token::DCList(vec![
+        Token::dc_list(vec![
             Datacell::null(),
             Datacell::new_bool(true),
             Datacell::new_uint_default(1234),

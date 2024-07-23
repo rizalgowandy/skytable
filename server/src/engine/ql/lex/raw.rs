@@ -27,6 +27,7 @@
 use {
     crate::engine::data::{cell::Datacell, lit::Lit},
     core::{borrow::Borrow, fmt, ops::Deref, str},
+    std::cell::UnsafeCell,
 };
 
 /*
@@ -117,8 +118,7 @@ impl<'a> Borrow<[u8]> for Ident<'a> {
     token
 */
 
-#[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug)]
 pub enum Token<'a> {
     Symbol(Symbol),
     Keyword(Keyword),
@@ -127,7 +127,61 @@ pub enum Token<'a> {
     /// A comma that can be ignored (used for fuzzing)
     IgnorableComma,
     Lit(Lit<'a>), // literal
-    DCList(Vec<Datacell>),
+    DCList(UnsafeCell<Vec<Datacell>>),
+}
+
+impl<'a> Drop for Token<'a> {
+    fn drop(&mut self) {
+        match self {
+            Self::DCList(dcl) => unsafe {
+                // UNSAFE(@ohsayan): we're cleaning up the value. so all good!
+                core::ptr::drop_in_place(dcl)
+            },
+            _ => {}
+        }
+    }
+}
+
+impl<'a> PartialEq for Token<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Symbol(l0), Self::Symbol(r0)) => l0 == r0,
+            (Self::Keyword(l0), Self::Keyword(r0)) => l0 == r0,
+            (Self::Ident(l0), Self::Ident(r0)) => l0 == r0,
+            (Self::Lit(l0), Self::Lit(r0)) => l0 == r0,
+            (Self::DCList(l0), Self::DCList(r0)) => unsafe {
+                // UNSAFE(@ohsayan): as a rule, no one ever leaves a dangling reference here
+                l0.get().as_ref().unwrap() == r0.get().as_ref().unwrap()
+            },
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
+unsafe impl<'a> Send for Token<'a> {}
+unsafe impl<'a> Sync for Token<'a> {}
+
+#[cfg(test)]
+impl<'a> Clone for Token<'a> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Symbol(arg0) => Self::Symbol(arg0.clone()),
+            Self::Keyword(arg0) => Self::Keyword(arg0.clone()),
+            Self::Ident(arg0) => Self::Ident(arg0.clone()),
+            Self::IgnorableComma => Self::IgnorableComma,
+            Self::Lit(arg0) => Self::Lit(arg0.clone()),
+            Self::DCList(arg0) => {
+                Self::DCList(UnsafeCell::new(
+                    unsafe {
+                        // UNSAFE(@ohsayan): it's easy to see that we have an actual valid
+                        arg0.get().as_ref()
+                    }
+                    .unwrap()
+                    .clone(),
+                ))
+            }
+        }
+    }
 }
 
 impl<'a> Token<'a> {
@@ -139,6 +193,9 @@ impl<'a> Token<'a> {
     }
     pub fn ident_eq(&self, ident: &str) -> bool {
         matches!(self, Token::Ident(id) if id.eq_ignore_ascii_case(ident))
+    }
+    pub fn dc_list(dc_l: Vec<Datacell>) -> Self {
+        Self::DCList(UnsafeCell::new(dc_l))
     }
 }
 
