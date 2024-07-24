@@ -46,7 +46,6 @@ type VecU8 = Vec<u8>;
 
 pub trait DataSource {
     type Error;
-    const RELIABLE_SOURCE: bool = true;
     fn has_remaining(&self, cnt: usize) -> bool;
     unsafe fn read_next_byte(&mut self) -> Result<u8, Self::Error>;
     unsafe fn read_next_block<const N: usize>(&mut self) -> Result<[u8; N], Self::Error>;

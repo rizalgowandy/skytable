@@ -288,7 +288,7 @@ pub fn dbtest(attrs: TokenStream, item: TokenStream) -> TokenStream {
         TestStrategy::Standard => {}
     }
     let ret = quote! {
-        #[core::prelude::v1::test]
+        #[::sky_macros::test]
         #retfn {
             #ret_block
         }

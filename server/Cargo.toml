@@ -54,7 +54,6 @@ skytable = { git = "https://github.com/skytable/client-rust.git", branch = "deve
 
 [features]
 nightly = []
-persist-suite = []
 
 [package.metadata.deb]
 name = "skytable"

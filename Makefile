@@ -12,3 +12,5 @@ bundle-dbg: .harness
 	@${RUN_HARNESS} bundle-dbg
 deb: .harness
 	@${RUN_HARNESS} deb
+audit: .harness
+	@${RUN_HARNESS} audit

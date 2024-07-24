@@ -88,6 +88,7 @@ pub trait DwordNN: Sized {
 }
 
 pub trait DwordQN: Sized {
+    #[allow(dead_code)]
     const DWORDQN_FROM_UPPER: bool = size_of::<Self>() > size_of::<(u64, usize)>();
     fn dwordqn_store_qw_nw(a: u64, b: usize) -> Self;
     fn dwordqn_load_qw_nw(&self) -> (u64, usize);
@@ -163,6 +164,7 @@ impl DwordQN for SpecialPaddedWord {
 */
 
 pub trait TwordNNN: Sized {
+    #[allow(dead_code)]
     const TWORDNNN_FROM_UPPER: bool = size_of::<Self>() > size_of::<[usize; 3]>();
     fn twordnnn_store_native_full(a: usize, b: usize, c: usize) -> Self;
     fn twordnnn_load_native_full(&self) -> [usize; 3];
@@ -225,6 +227,7 @@ impl TwordNNN for NativeTword {
 */
 
 pub trait QwordNNNN: Sized {
+    #[allow(dead_code)]
     const QWORDNNNN_FROM_UPPER: bool = size_of::<Self>() > size_of::<[usize; 4]>();
     fn qwordnnnn_store_native_full(a: usize, b: usize, c: usize, d: usize) -> Self;
     #[allow(dead_code)]

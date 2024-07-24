@@ -99,7 +99,7 @@ fn run_update(global: &TestGlobal, update: &str) -> QueryResult<()> {
     dml::update(global, insert)
 }
 
-#[test]
+#[sky_macros::test]
 fn truncate() {
     FileSystem::set_context(FSContext::Local);
     const LOG_NAME: &str = "truncate_log.db";

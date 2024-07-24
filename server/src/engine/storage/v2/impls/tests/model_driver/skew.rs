@@ -165,7 +165,7 @@ fn emulate_skewed<U: Sized, T: Sized, const N: usize>(
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn skewed_insert_update_upsert_delete() {
     FileSystem::set_context(FSContext::Local);
     let mut fs = FileSystem::instance();
@@ -295,7 +295,7 @@ fn skewed_insert_update_upsert_delete() {
     )
 }
 
-#[test]
+#[sky_macros::test]
 fn skewed_upsert() {
     FileSystem::set_context(FSContext::Local);
     let mut fs = FileSystem::instance();

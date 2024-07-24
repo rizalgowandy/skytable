@@ -521,7 +521,6 @@ impl From<()> for ErrorHack {
 }
 
 impl DataSource for TrackedReader {
-    const RELIABLE_SOURCE: bool = false;
     type Error = ErrorHack;
     fn has_remaining(&self, cnt: usize) -> bool {
         self.remaining() >= cnt as u64

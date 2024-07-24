@@ -66,7 +66,7 @@ fn init_space(global: &impl GlobalInstanceLike, space_name: &str, env: &str) -> 
         .get_uuid()
 }
 
-#[test]
+#[sky_macros::test]
 fn create_space() {
     with_variable("create_space_test.global.db-tlog", |log_name| {
         let uuid;
@@ -92,7 +92,7 @@ fn create_space() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn alter_space() {
     with_variable("alter_space_test.global.db-tlog", |log_name| {
         let uuid;
@@ -122,7 +122,7 @@ fn alter_space() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn drop_space() {
     with_variable("drop_space_test.global.db-tlog", |log_name| {
         {
@@ -172,7 +172,7 @@ fn init_default_model(global: &impl GlobalInstanceLike) -> Uuid {
     )
 }
 
-#[test]
+#[sky_macros::test]
 fn create_model() {
     with_variable("create_model_test.global.db-tlog", |log_name| {
         let _uuid_space;
@@ -207,7 +207,7 @@ fn create_model() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn alter_model_add() {
     with_variable("alter_model_add_test.global.db-tlog", |log_name| {
         {
@@ -238,7 +238,7 @@ fn alter_model_add() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn alter_model_remove() {
     with_variable("alter_model_remove_test.global.db-tlog", |log_name| {
         {
@@ -272,7 +272,7 @@ fn alter_model_remove() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn alter_model_update() {
     with_variable("alter_model_update_test.global.db-tlog", |log_name| {
         {
@@ -307,7 +307,7 @@ fn alter_model_update() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn drop_model() {
     with_variable("drop_model_test.global.db-tlog", |log_name| {
         {

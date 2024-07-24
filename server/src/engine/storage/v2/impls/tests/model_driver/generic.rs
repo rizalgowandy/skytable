@@ -200,7 +200,7 @@ fn run_sample_updates<K, V>(
     test runs
 */
 
-#[test]
+#[sky_macros::test]
 fn empty_model_data() {
     FileSystem::set_context(FSContext::Local);
     let mut fs = FileSystem::instance();
@@ -216,7 +216,7 @@ fn empty_model_data() {
     );
 }
 
-#[test]
+#[sky_macros::test]
 fn model_data_inserts() {
     FileSystem::set_context(FSContext::Local);
     let mut fs = FileSystem::instance();
@@ -240,7 +240,7 @@ fn model_data_inserts() {
     )
 }
 
-#[test]
+#[sky_macros::test]
 #[cfg(not(all(target_os = "windows", target_pointer_width = "32")))]
 fn model_data_updates() {
     FileSystem::set_context(FSContext::Local);

@@ -35,7 +35,7 @@ use {
     crate::engine::fractal::error::ErrorContext,
 };
 
-#[test]
+#[sky_macros::test]
 fn journal_open_close() {
     const JOURNAL_NAME: &str = "journal_open_close";
     {
@@ -161,7 +161,7 @@ fn journal_open_close() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn journal_with_server_single_event() {
     const JOURNAL_NAME: &str = "journal_with_server_single_event";
     {
@@ -303,7 +303,7 @@ fn journal_with_server_single_event() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn multi_boot() {
     {
         let mut j = create_journal::<SimpleDBJournal>("multiboot").unwrap();

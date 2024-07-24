@@ -56,7 +56,7 @@ fn extract_cli_args_raw(
     }))
     .unwrap()
 }
-#[test]
+#[sky_macros::test]
 fn parse_cli_args_simple() {
     let payload = "skyd --mode dev --endpoint tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
@@ -66,7 +66,7 @@ fn parse_cli_args_simple() {
     };
     assert_eq!(cfg, expected);
 }
-#[test]
+#[sky_macros::test]
 fn parse_cli_args_packed() {
     let payload = "skyd --mode=dev --endpoint=tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
@@ -76,7 +76,7 @@ fn parse_cli_args_packed() {
     };
     assert_eq!(cfg, expected);
 }
-#[test]
+#[sky_macros::test]
 fn parse_cli_args_multi() {
     let payload = "skyd --mode=dev --endpoint tcp@localhost:2003";
     let cfg = extract_cli_args(payload);
@@ -86,7 +86,7 @@ fn parse_cli_args_multi() {
     };
     assert_eq!(cfg, expected);
 }
-#[test]
+#[sky_macros::test]
 fn parse_validate_cli_args() {
     with_files(
         [
@@ -131,7 +131,7 @@ fn parse_validate_cli_args() {
         },
     );
 }
-#[test]
+#[sky_macros::test]
 fn parse_validate_cli_args_help_and_version() {
     let pl1 = "skyd --help";
     let pl2 = "skyd --version";
@@ -175,7 +175,7 @@ fn vars_to_args(variables: &[String]) -> ParsedRawArgs {
         })
         .collect()
 }
-#[test]
+#[sky_macros::test]
 fn parse_env_args_simple() {
     let variables = [
         format!("SKYDB_TLS_CERT=/var/skytable/keys/cert.pem"),
@@ -191,7 +191,7 @@ fn parse_env_args_simple() {
     let args = config::parse_env_args().unwrap().unwrap();
     assert_eq!(args, expected_args);
 }
-#[test]
+#[sky_macros::test]
 fn parse_env_args_multi() {
     let variables = [
         format!("SKYDB_TLS_CERT=/var/skytable/keys/cert.pem"),
@@ -208,7 +208,7 @@ fn parse_env_args_multi() {
     let args = config::parse_env_args().unwrap().unwrap();
     assert_eq!(args, expected_args);
 }
-#[test]
+#[sky_macros::test]
 fn parse_validate_env_args() {
     with_files(
         [
@@ -270,7 +270,7 @@ endpoints:
     host: 127.0.0.1
     port: 2003
     ";
-#[test]
+#[sky_macros::test]
 fn test_config_file() {
     with_files(
         [

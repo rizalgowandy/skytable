@@ -29,3 +29,5 @@ mod macros;
 mod cfg;
 mod client;
 mod client_misc;
+#[cfg(miri)]
+mod safety;

@@ -58,6 +58,7 @@ unsafe_marker_impl!(unsafe impl for IndexSTSeqDllIterUnordKV<'a, K, V>);
 
 impl<'a, K: 'a, V: 'a> IndexSTSeqDllIterUnordKV<'a, K, V> {
     #[inline(always)]
+    #[allow(dead_code)]
     pub(super) fn new<S>(
         m: &'a StdMap<IndexSTSeqDllKeyptr<K>, NonNull<IndexSTSeqDllNode<K, V>>, S>,
     ) -> Self {
@@ -111,6 +112,7 @@ unsafe_marker_impl!(unsafe impl for IndexSTSeqDllIterUnordKey<'a, K, V>);
 
 impl<'a, K: 'a, V: 'a> IndexSTSeqDllIterUnordKey<'a, K, V> {
     #[inline(always)]
+    #[allow(dead_code)]
     pub(super) fn new<S>(
         m: &'a StdMap<IndexSTSeqDllKeyptr<K>, NonNull<IndexSTSeqDllNode<K, V>>, S>,
     ) -> Self {
@@ -162,6 +164,7 @@ unsafe_marker_impl!(unsafe impl for IndexSTSeqDllIterUnordValue<'a, K, V>);
 
 impl<'a, K: 'a, V: 'a> IndexSTSeqDllIterUnordValue<'a, K, V> {
     #[inline(always)]
+    #[allow(dead_code)]
     pub(super) fn new<S>(
         m: &'a StdMap<IndexSTSeqDllKeyptr<K>, NonNull<IndexSTSeqDllNode<K, V>>, S>,
     ) -> Self {
@@ -568,6 +571,7 @@ pub struct IndexSTSeqDllIterOrdValue<'a, K: 'a, V: 'a> {
     i: IndexSTSeqDllIterOrdBase<'a, K, V, IndexSTSeqDllIterOrdConfigValue>,
 }
 impl<'a, K: 'a, V: 'a> IndexSTSeqDllIterOrdValue<'a, K, V> {
+    #[allow(dead_code)]
     pub(super) fn new<C: Config<K, V>>(arg: &'a IndexSTSeqDll<K, V, C>) -> Self {
         Self {
             i: IndexSTSeqDllIterOrdBase::new(arg),

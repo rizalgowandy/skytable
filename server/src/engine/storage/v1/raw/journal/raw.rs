@@ -69,8 +69,6 @@ pub fn load_journal<TA: JournalAdapter, F: sdss::sdss_r1::FileSpecV1<DecodeArgs 
 
 /// The journal adapter
 pub trait JournalAdapter {
-    /// deny any SDSS file level operations that require non-append mode writes (for example, updating the SDSS header's modify count)
-    const DENY_NONAPPEND: bool = true;
     /// enable/disable automated recovery algorithms
     const RECOVERY_PLUGIN: bool;
     /// The journal event

@@ -61,7 +61,7 @@ const STATIC_HANDSHAKE_WITH_AUTH: CHandshakeStatic = CHandshakeStatic::new(
     handshake with no state changes
 */
 
-#[test]
+#[sky_macros::test]
 fn handshake_with_multiple_errors() {
     for (bad_hs, error) in [
         // all incorrect
@@ -97,7 +97,7 @@ fn handshake_with_multiple_errors() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn parse_staged_with_auth() {
     for i in 0..FULL_HANDSHAKE_WITH_AUTH.len() {
         let buf = &FULL_HANDSHAKE_WITH_AUTH[..i + 1];
@@ -176,7 +176,7 @@ fn run_state_changes_return_rounds(src: &[u8], expected_final_handshake: CHandsh
     rounds
 }
 
-#[test]
+#[sky_macros::test]
 fn parse_auth_with_state_updates() {
     let rounds = run_state_changes_return_rounds(
         &FULL_HANDSHAKE_WITH_AUTH,
@@ -201,7 +201,7 @@ fn scan_hs(hs: impl AsRef<[u8]>, f: impl Fn(HandshakeResult)) {
     f(hs)
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_packet_illegal_username_length() {
     scan_hs(b"H\0\0\0\0\0A\n8\nsayanpass1234", |hs_result| {
         assert_eq!(
@@ -211,7 +211,7 @@ fn hs_bad_packet_illegal_username_length() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_packet_illegal_password_length() {
     scan_hs(b"H\0\0\0\0\05\nA\nsayanpass1234", |hs_result| {
         assert_eq!(
@@ -221,7 +221,7 @@ fn hs_bad_packet_illegal_password_length() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_packet_illegal_pwd_uname_length() {
     scan_hs(b"H\0\0\0\0\0A\nA\nsayanpass1234", |hs_result| {
         assert_eq!(
@@ -231,7 +231,7 @@ fn hs_bad_packet_illegal_pwd_uname_length() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_packet_first_byte() {
     scan_hs(HS_BAD_PACKET, |hs_result| {
         assert_eq!(
@@ -241,7 +241,7 @@ fn hs_bad_packet_first_byte() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_version_hs() {
     scan_hs(HS_BAD_VERSION_HS, |hs_result| {
         assert_eq!(
@@ -251,7 +251,7 @@ fn hs_bad_version_hs() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_version_proto() {
     scan_hs(HS_BAD_VERSION_PROTO, |hs_result| {
         assert_eq!(
@@ -261,7 +261,7 @@ fn hs_bad_version_proto() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_exchange_mode() {
     scan_hs(HS_BAD_MODE_XCHG, |hs_result| {
         assert_eq!(
@@ -271,7 +271,7 @@ fn hs_bad_exchange_mode() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_query_mode() {
     scan_hs(HS_BAD_MODE_QUERY, |hs_result| {
         assert_eq!(
@@ -281,7 +281,7 @@ fn hs_bad_query_mode() {
     })
 }
 
-#[test]
+#[sky_macros::test]
 fn hs_bad_auth_mode() {
     scan_hs(HS_BAD_MODE_AUTH, |hs_result| {
         assert_eq!(hs_result, HandshakeResult::Error(ProtocolError::RejectAuth))
@@ -321,7 +321,7 @@ fn iterate_exchange_payload_from_zero(
     corner cases
 */
 
-#[test]
+#[sky_macros::test]
 fn zero_sized_packet() {
     for payload in [
         "S0\n",    // zero packet
@@ -359,7 +359,7 @@ fn zero_sized_packet() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn invalid_first_byte() {
     for payload in ["A1\n\n", "B7\n5\nsayan"] {
         iterate_exchange_payload(payload, 1, |size, result| {
@@ -439,7 +439,7 @@ impl EQuery {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn ext_query() {
     let ext_query = EQuery::new("create space myspace".to_owned(), &["sayan", "pass", ""]);
     let query_starts_at = ext_query.payload[ext_query.variable_range.clone()]
@@ -484,7 +484,7 @@ const fn nth_position_value(mut real: usize, mut pos: usize) -> usize {
     real
 }
 
-#[test]
+#[sky_macros::test]
 fn simple_query() {
     for query in [
         // small query without params
@@ -612,7 +612,7 @@ fn get_pipeline_from_result(pipeline: ExchangeResult) -> Vec<SQuery> {
     pipeline
 }
 
-#[test]
+#[sky_macros::test]
 fn full_pipe_scan() {
     let pipeline_buffer = pipe([
         EPipeQuery::new_string("create space myspace", &[]),
@@ -668,7 +668,7 @@ impl EPipe {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn pipeline() {
     for pipe in [
         EPipe::new([
@@ -803,7 +803,7 @@ fn run_staged(full_payload: &[u8], f: impl Fn(ExchangeResult)) {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn staged_simple_query() {
     for eq in [
         EQuery::new(
@@ -826,7 +826,7 @@ fn staged_simple_query() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn staged_pipeline() {
     for epipe in [
         EPipe::new([

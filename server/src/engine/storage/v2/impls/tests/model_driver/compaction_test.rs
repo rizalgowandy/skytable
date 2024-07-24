@@ -44,7 +44,7 @@ use {
     std::thread,
 };
 
-#[test]
+#[sky_macros::test]
 fn compaction_test() {
     FileSystem::set_context(FSContext::Local);
     let mut fs = FileSystem::instance();

@@ -187,7 +187,7 @@ fn open_log() -> (
     (db, log)
 }
 
-#[test]
+#[sky_macros::test]
 fn test_this_data() {
     array!(
         const DATA1: [&str] = ["acai berry", "billberry", "cranberry"];
@@ -442,7 +442,7 @@ impl BatchAdapterSpec for BatchDBAdapter {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn batch_simple() {
     {
         let mut batch_drv = BatchAdapter::create("mybatch").unwrap();

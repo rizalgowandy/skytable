@@ -226,7 +226,7 @@ impl RawJournalAdapter for SimpleDBJournal {
     basic tests
 */
 
-#[test]
+#[sky_macros::test]
 fn encode_decode_meta() {
     let dv1 = DriverEvent::new(u128::MAX - 1, DriverEventKind::Reopened, 0, 0, 0);
     let encoded1 = dv1.encode_self();
@@ -234,7 +234,7 @@ fn encode_decode_meta() {
     assert_eq!(dv1, decoded1);
 }
 
-#[test]
+#[sky_macros::test]
 fn first_triplet_sanity() {
     // first driver event
     {
@@ -279,7 +279,7 @@ fn first_triplet_sanity() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn jw_state() {
     let state_backup;
     {

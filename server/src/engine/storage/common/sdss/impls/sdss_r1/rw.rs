@@ -600,7 +600,7 @@ impl<
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn check_vfs_buffering() {
     use crate::engine::storage::{
         common::interface::fs::FileSystem,
