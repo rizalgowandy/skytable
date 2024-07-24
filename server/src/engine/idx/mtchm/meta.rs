@@ -78,6 +78,7 @@ pub trait TreeElement: Clone + 'static {
     type VEx2;
     fn key(&self) -> &Self::Key;
     fn val(&self) -> &Self::Value;
+    #[allow(dead_code)]
     fn new(k: Self::IKey, v: Self::IValue, vex1: Self::VEx1, vex2: Self::VEx2) -> Self;
 }
 

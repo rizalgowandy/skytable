@@ -47,7 +47,10 @@ use {
     proc_macro::TokenStream,
     proc_macro2::{Ident, TokenStream as TokenStream2},
     quote::quote,
-    syn::{parse_macro_input, Data, DataStruct, DeriveInput, Expr, Fields, Meta, NestedMeta},
+    syn::{
+        parse_macro_input, AttributeArgs, Data, DataStruct, DeriveInput, Expr, Fields, ItemFn,
+        Meta, NestedMeta,
+    },
 };
 
 mod dbtest;
@@ -222,4 +225,30 @@ fn process_enum_tags(
         repr_type_ident,
         variant_exprs,
     )
+}
+
+#[proc_macro_attribute]
+pub fn miri_test(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let attr_args = parse_macro_input!(attrs as AttributeArgs);
+    assert!(attr_args.is_empty(), "no args allowed here");
+    let input_fn = parse_macro_input!(item as ItemFn);
+    quote! {
+        #[cfg(miri)]
+        #[::core::prelude::v1::test]
+        #input_fn
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
+pub fn test(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let attr_args = parse_macro_input!(attrs as AttributeArgs);
+    assert!(attr_args.is_empty(), "no args allowed here");
+    let input_fn = parse_macro_input!(item as ItemFn);
+    quote! {
+        #[cfg(not(miri))]
+        #[::core::prelude::v1::test]
+        #input_fn
+    }
+    .into()
 }

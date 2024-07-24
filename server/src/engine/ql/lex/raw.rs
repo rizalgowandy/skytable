@@ -25,8 +25,9 @@
 */
 
 use {
-    crate::engine::data::lit::Lit,
+    crate::engine::data::{cell::Datacell, lit::Lit},
     core::{borrow::Borrow, fmt, ops::Deref, str},
+    std::cell::UnsafeCell,
 };
 
 /*
@@ -117,7 +118,7 @@ impl<'a> Borrow<[u8]> for Ident<'a> {
     token
 */
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug)]
 pub enum Token<'a> {
     Symbol(Symbol),
     Keyword(Keyword),
@@ -126,6 +127,49 @@ pub enum Token<'a> {
     /// A comma that can be ignored (used for fuzzing)
     IgnorableComma,
     Lit(Lit<'a>), // literal
+    DCList(UnsafeCell<Vec<Datacell>>),
+}
+
+impl<'a> PartialEq for Token<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Symbol(l0), Self::Symbol(r0)) => l0 == r0,
+            (Self::Keyword(l0), Self::Keyword(r0)) => l0 == r0,
+            (Self::Ident(l0), Self::Ident(r0)) => l0 == r0,
+            (Self::Lit(l0), Self::Lit(r0)) => l0 == r0,
+            (Self::DCList(l0), Self::DCList(r0)) => unsafe {
+                // UNSAFE(@ohsayan): as a rule, no one ever leaves a dangling reference here
+                l0.get().as_ref().unwrap() == r0.get().as_ref().unwrap()
+            },
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
+unsafe impl<'a> Send for Token<'a> {}
+unsafe impl<'a> Sync for Token<'a> {}
+
+#[cfg(test)]
+impl<'a> Clone for Token<'a> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Symbol(arg0) => Self::Symbol(arg0.clone()),
+            Self::Keyword(arg0) => Self::Keyword(arg0.clone()),
+            Self::Ident(arg0) => Self::Ident(arg0.clone()),
+            Self::IgnorableComma => Self::IgnorableComma,
+            Self::Lit(arg0) => Self::Lit(arg0.clone()),
+            Self::DCList(arg0) => {
+                Self::DCList(UnsafeCell::new(
+                    unsafe {
+                        // UNSAFE(@ohsayan): it's easy to see that we have an actual valid
+                        arg0.get().as_ref()
+                    }
+                    .unwrap()
+                    .clone(),
+                ))
+            }
+        }
+    }
 }
 
 impl<'a> Token<'a> {
@@ -138,6 +182,28 @@ impl<'a> Token<'a> {
     pub fn ident_eq(&self, ident: &str) -> bool {
         matches!(self, Token::Ident(id) if id.eq_ignore_ascii_case(ident))
     }
+    pub fn dc_list(dc_l: Vec<Datacell>) -> Self {
+        Self::DCList(UnsafeCell::new(dc_l))
+    }
+    pub unsafe fn take_list(dcl: &UnsafeCell<Vec<Datacell>>) -> Vec<Datacell> {
+        unsafe {
+            /*
+                UNSAFE(@ohsayan): nasty nasty stuff here because technically nothing here is guaranteeing that no
+                two threads will be doing this in parallel. But the important bit is that two thrads are NEVER used
+                to decode one token stream so doing crazy things to just enforce statical guarantee for a property
+                we already know is guaranteed is inherently pointless. Hence, what we do is: swap the pointers!
+
+                TODO(@ohsayan): BUT I MUST EMPHASIZE FOR GOODNESS SAKE IS THAT THIS IS JUST VERY AWFUL. IT'S PLAIN BUTCHERY
+                OF BORROWCK'S RULES AND WE *MUST* DO SOMETHING TO `ast::State` to make this semantically better.
+
+                But the way `State` works in a way does implicitly guarantee that this isn't easily breakable, but yes
+                transmuting lifetimes are the way to completely break this.
+
+                SCARY STUFF!
+            */
+            core::mem::take(&mut *dcl.get())
+        }
+    }
 }
 
 impl<'a> ToString for Token<'a> {
@@ -147,6 +213,9 @@ impl<'a> ToString for Token<'a> {
             Self::Keyword(k) => k.to_string(),
             Self::Ident(id) => id.to_string(),
             Self::Lit(l) => l.to_string(),
+            Self::DCList(dc_lst) => {
+                format!("{dc_lst:?}")
+            }
             #[cfg(test)]
             Self::IgnorableComma => "[IGNORE_COMMA]".to_owned(),
         }
@@ -521,7 +590,7 @@ impl KeywordStmt {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn blocking_capybara() {
     assert!(KeywordStmt::Truncate.is_blocking());
     assert!(!KeywordStmt::Insert.is_blocking());

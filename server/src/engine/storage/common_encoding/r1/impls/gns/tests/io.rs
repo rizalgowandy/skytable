@@ -45,7 +45,7 @@ mod space_tests {
         },
         crate::engine::txn::gns::space::{AlterSpaceTxn, CreateSpaceTxn, DropSpaceTxn},
     };
-    #[test]
+    #[sky_macros::test]
     fn create() {
         let orig_space = Space::new_auto_all();
         let space_r = orig_space.props();
@@ -60,7 +60,7 @@ mod space_tests {
             decoded
         );
     }
-    #[test]
+    #[sky_macros::test]
     fn alter() {
         let space = Space::new_auto_all();
         let space_r = space.props();
@@ -75,7 +75,7 @@ mod space_tests {
             decoded
         );
     }
-    #[test]
+    #[sky_macros::test]
     fn drop() {
         let space = Space::new_auto_all();
         let txn = DropSpaceTxn::new(super::SpaceIDRef::new("myspace", &space));
@@ -119,7 +119,7 @@ mod model_tests {
         );
         (space, model)
     }
-    #[test]
+    #[sky_macros::test]
     fn create() {
         let (space, model) = default_space_model();
         let txn = CreateModelTxn::new(super::SpaceIDRef::new("myspace", &space), "mymodel", &model);
@@ -134,7 +134,7 @@ mod model_tests {
             decoded
         )
     }
-    #[test]
+    #[sky_macros::test]
     fn alter_add() {
         let (space, model) = default_space_model();
         let new_fields = into_dict! {
@@ -166,7 +166,7 @@ mod model_tests {
             decoded
         );
     }
-    #[test]
+    #[sky_macros::test]
     fn alter_remove() {
         let (space, model) = default_space_model();
         let removed_fields = ["profile_pic".into()];
@@ -194,7 +194,7 @@ mod model_tests {
             decoded
         );
     }
-    #[test]
+    #[sky_macros::test]
     fn alter_update() {
         let (space, model) = default_space_model();
         let updated_fields_copy = into_dict! {
@@ -229,7 +229,7 @@ mod model_tests {
             decoded
         );
     }
-    #[test]
+    #[sky_macros::test]
     fn drop() {
         let (space, model) = default_space_model();
         let txn = DropModelTxn::new(super::ModelIDRef::new(

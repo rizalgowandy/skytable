@@ -252,7 +252,7 @@ fn genkv(i: usize) -> (String, String) {
     )
 }
 
-#[test]
+#[sky_macros::test]
 fn server_events_only() {
     {
         // create and close; net srv = 1
@@ -304,7 +304,7 @@ fn server_events_only() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn do_not_compact_unique() {
     /*
         we create multiple unique events leading to not redundancy
@@ -320,7 +320,7 @@ fn do_not_compact_unique() {
     assert_eq!(stat.recommended_action(), Recommendation::NoActionNeeded);
 }
 
-#[test]
+#[sky_macros::test]
 fn compact_because_duplicate() {
     /*
         we create multiple overlapping events leading to redundancy.
@@ -375,7 +375,7 @@ fn compact_because_duplicate() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn compact_because_server_event_exceeded() {
     /*
         instantiate journal add add keys [0,5). close.

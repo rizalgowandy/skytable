@@ -27,8 +27,8 @@
 use {
     skytable::{
         pipe, query,
-        query::Pipeline,
-        response::{Response, Rows, Value},
+        query::{Pipeline, QList},
+        response::{RList, Response, Rows, Value},
         Query, Response,
     },
     std::collections::HashMap,
@@ -156,4 +156,30 @@ fn truncate_is_root_only() {
             .unwrap(),
         Response::Error(5)
     );
+}
+
+#[sky_macros::dbtest]
+fn insert_list() {
+    let data = vec!["next", "ducking", "level"];
+    let mut db = db!();
+    db.query_parse::<()>(&query!("create space dynlist"))
+        .unwrap();
+    db.query_parse::<()>(&query!(
+        "create model dynlist.app(username: string, bookmarks: list {type: string})"
+    ))
+    .unwrap();
+    db.query_parse::<()>(&query!(
+        "insert into dynlist.app(?, ?)",
+        "sayan",
+        QList::new(&data)
+    ))
+    .unwrap();
+    let (username, bookmarks) = db
+        .query_parse::<(String, RList<String>)>(&query!(
+            "select * from dynlist.app where username = ?",
+            "sayan"
+        ))
+        .unwrap();
+    assert_eq!(username, "sayan");
+    assert_eq!(&bookmarks[..], data);
 }

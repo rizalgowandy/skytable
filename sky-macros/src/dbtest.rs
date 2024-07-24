@@ -145,7 +145,7 @@ fn parse_attrs(attrs: AttributeArgs) -> TestSetup {
                 }
                 unknown => panic!("unknown nested attribute `{unknown}`"),
             },
-            AttributeKind::Path(_) | AttributeKind::Lit(_) => {
+            AttributeKind::Path { .. } | AttributeKind::Lit { .. } => {
                 panic!("unexpected tokens")
             }
         }
@@ -288,7 +288,7 @@ pub fn dbtest(attrs: TokenStream, item: TokenStream) -> TokenStream {
         TestStrategy::Standard => {}
     }
     let ret = quote! {
-        #[core::prelude::v1::test]
+        #[::sky_macros::test]
         #retfn {
             #ret_block
         }

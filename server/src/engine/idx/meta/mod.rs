@@ -47,6 +47,7 @@ pub trait Comparable<K: ?Sized>: Hash {
 }
 
 pub trait ComparableUpgradeable<K>: Comparable<K> {
+    #[allow(dead_code)]
     fn upgrade(&self) -> K;
 }
 

@@ -46,7 +46,7 @@ use {
     },
 };
 
-#[test]
+#[sky_macros::test]
 fn dict() {
     let dict: DictGeneric = into_dict! {
         "hello" => Datacell::new_str("world".into()),
@@ -61,7 +61,7 @@ fn dict() {
     assert_eq!(dict, decoded);
 }
 
-#[test]
+#[sky_macros::test]
 fn layer() {
     let layer = Layer::list();
     let encoded = super::enc::full::<obj::LayerRef>(obj::LayerRef(&layer));
@@ -69,7 +69,7 @@ fn layer() {
     assert_eq!(layer, dec);
 }
 
-#[test]
+#[sky_macros::test]
 fn field() {
     let field = Field::new([Layer::list(), Layer::uint64()].into(), true);
     let encoded = super::enc::full::<obj::FieldRef>((&field).into());
@@ -77,7 +77,7 @@ fn field() {
     assert_eq!(field, dec);
 }
 
-#[test]
+#[sky_macros::test]
 fn fieldmap() {
     let mut fields = IndexSTSeqCns::<Box<str>, Field>::idx_init();
     fields.st_insert("password".into(), Field::new([Layer::bin()].into(), false));
@@ -98,7 +98,7 @@ fn fieldmap() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn model() {
     let uuid = Uuid::new();
     let model = ModelData::new_restore(
@@ -115,7 +115,7 @@ fn model() {
     assert_eq!(model, dec);
 }
 
-#[test]
+#[sky_macros::test]
 fn space() {
     let uuid = Uuid::new();
     let space = Space::new_restore_empty(uuid, Default::default());
@@ -125,7 +125,7 @@ fn space() {
     assert_eq!(space, dec);
 }
 
-#[test]
+#[sky_macros::test]
 fn dc_encode_decode() {
     fn enc_dec(dc: &Datacell) {
         let mut encoded = vec![];

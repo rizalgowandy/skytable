@@ -1,13 +1,12 @@
 /*
- * Created on Thu Feb 09 2023
- *
  * This file is a part of Skytable
+ *
  * Skytable (formerly known as TerrabaseDB or Skybase) is a free and open-source
  * NoSQL database written by Sayan Nandan ("the Author") with the
  * vision to provide flexibility in data modelling without compromising
  * on performance, queryability or scalability.
  *
- * Copyright (c) 2023, Sayan Nandan <ohsayan@outlook.com>
+ * Copyright (c) 2024, Sayan Nandan <nandansayan@outlook.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -24,12 +23,27 @@
  *
 */
 
-mod md_dict_tests;
-use super::lit::Lit;
+use {
+    crate::{error::HarnessResult, util},
+    std::process::Command,
+};
 
-#[sky_macros::test]
-fn t_largest_int_lit() {
-    let x = Lit::new_uint(u64::MAX);
-    let y = Lit::new_uint(u64::MAX);
-    assert_eq!(x, y);
+pub fn audit() -> HarnessResult<()> {
+    let mut miri_args = vec!["miri".to_owned(), "test".to_owned()];
+    if let Some(t) = util::get_var(util::VAR_TARGET) {
+        miri_args.push("--target".to_owned());
+        miri_args.push(t);
+    }
+    miri_args.push("-p".to_owned());
+    miri_args.push("skyd".to_owned());
+    let mut cmd = Command::new("cargo");
+    cmd.args(&miri_args)
+        .env(
+            "RUSTFLAGS",
+            "-A dead_code -A unused_imports -A unused_macros",
+        )
+        .env("MIRIFLAGS", "-Zmiri-permissive-provenance");
+    util::handle_child(&format!("audit skyd using miri"), cmd)?;
+    info!("successfully completed audit of skyd (miri)");
+    Ok(())
 }

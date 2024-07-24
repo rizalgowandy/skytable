@@ -30,10 +30,10 @@ use {
 };
 
 pub enum AttributeKind {
-    Lit(Lit),
+    Lit { _l: Lit },
     NestedAttrs { name: Ident, attrs: Vec<Self> },
     Pair(Ident, Lit),
-    Path(Path),
+    Path { _p: Path },
 }
 
 impl AttributeKind {
@@ -47,7 +47,7 @@ impl AttributeKind {
 
 pub fn extract_attribute(attr: &NestedMeta) -> AttributeKind {
     match attr {
-        NestedMeta::Lit(l) => AttributeKind::Lit(l.clone()),
+        NestedMeta::Lit(l) => AttributeKind::Lit { _l: l.clone() },
         NestedMeta::Meta(m) => match m {
             Meta::List(l) => AttributeKind::NestedAttrs {
                 name: l.path.get_ident().unwrap().clone(),
@@ -56,7 +56,7 @@ pub fn extract_attribute(attr: &NestedMeta) -> AttributeKind {
             Meta::NameValue(MetaNameValue { path, lit, .. }) => {
                 AttributeKind::Pair(path.get_ident().unwrap().clone(), lit.clone())
             }
-            Meta::Path(p) => AttributeKind::Path(p.clone()),
+            Meta::Path(p) => AttributeKind::Path { _p: p.clone() },
         },
     }
 }

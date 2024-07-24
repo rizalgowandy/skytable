@@ -435,6 +435,7 @@ pub trait RawJournalAdapter: Sized {
     ) -> RuntimeResult<()>;
     /// initialize this adapter
     fn initialize(j_: &JournalInitializer) -> Self;
+    #[allow(dead_code)]
     /// get a write context
     fn enter_context<'a>(adapter: &'a mut RawJournalWriter<Self>) -> Self::Context<'a>;
     /// parse event metadata

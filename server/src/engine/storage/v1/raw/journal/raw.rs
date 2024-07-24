@@ -69,8 +69,6 @@ pub fn load_journal<TA: JournalAdapter, F: sdss::sdss_r1::FileSpecV1<DecodeArgs 
 
 /// The journal adapter
 pub trait JournalAdapter {
-    /// deny any SDSS file level operations that require non-append mode writes (for example, updating the SDSS header's modify count)
-    const DENY_NONAPPEND: bool = true;
     /// enable/disable automated recovery algorithms
     const RECOVERY_PLUGIN: bool;
     /// The journal event
@@ -79,6 +77,7 @@ pub trait JournalAdapter {
     type GlobalState;
     /// The transactional impl that makes use of this journal, should define it's error type
     type Error;
+    #[allow(dead_code)]
     /// Encode a journal event into a blob
     fn encode(event: Self::JournalEvent) -> Box<[u8]>;
     /// Decode a journal event and apply it to the global state

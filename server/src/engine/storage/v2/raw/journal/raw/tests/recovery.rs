@@ -408,7 +408,7 @@ fn apply_event_mix(jrnl: &mut RawJournalWriter<SimpleDBJournal>) -> RuntimeResul
     Ok(op_count)
 }
 
-#[test]
+#[sky_macros::test]
 fn corruption_before_close() {
     let initializers = [
         Initializer::new_driver_type(
@@ -599,7 +599,7 @@ fn corruption_before_close() {
     )
 }
 
-#[test]
+#[sky_macros::test]
 fn corruption_after_reopen() {
     let initializers = [
         Initializer::new_driver_type(
@@ -806,7 +806,7 @@ fn corruption_after_reopen() {
     )
 }
 
-#[test]
+#[sky_macros::test]
 fn corruption_at_runtime() {
     // first get the offsets to compute the size of the event
     let offset = {
@@ -993,7 +993,7 @@ fn corruption_at_runtime() {
     which is absolutely not feasible. Instead, we just ensure that the pre and post states are valid.
 */
 
-#[test]
+#[sky_macros::test]
 fn midway_corruption_close() {
     let initializers = [
         Initializer::new_driver_type("midway_corruption_close_direct", |jrnl_id| {
@@ -1165,7 +1165,7 @@ fn midway_corruption_close() {
     debug_set_offset_tracking(false);
 }
 
-#[test]
+#[sky_macros::test]
 fn midway_corruption_reopen() {
     let initializers = [
         Initializer::new(
@@ -1302,7 +1302,7 @@ fn midway_corruption_reopen() {
     debug_set_offset_tracking(false);
 }
 
-#[test]
+#[sky_macros::test]
 fn midway_corruption_at_runtime() {
     debug_set_offset_tracking(true);
     // compute offset size
@@ -1497,7 +1497,7 @@ fn emulate_failure_for_rollback(
     FileSystem::remove_file(journal_id).unwrap();
 }
 
-#[test]
+#[sky_macros::test]
 fn rollback_write_zero_empty_log() {
     emulate_failure_for_rollback(
         "rollback_empty_log_write_zero",
@@ -1515,7 +1515,7 @@ fn rollback_write_zero_empty_log() {
     );
 }
 
-#[test]
+#[sky_macros::test]
 fn rollback_write_zero_nonempty_log() {
     emulate_failure_for_rollback(
         "rollback_write_zero_nonempty_log",
@@ -1538,7 +1538,7 @@ fn rollback_write_zero_nonempty_log() {
     )
 }
 
-#[test]
+#[sky_macros::test]
 fn rollback_random_write_failure_empty_log() {
     for _ in 0..100 {
         emulate_failure_for_rollback(
@@ -1558,7 +1558,7 @@ fn rollback_random_write_failure_empty_log() {
     }
 }
 
-#[test]
+#[sky_macros::test]
 fn rollback_random_write_failure_log() {
     for _ in 0..100 {
         emulate_failure_for_rollback(

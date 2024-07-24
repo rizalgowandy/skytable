@@ -28,6 +28,7 @@
 extern crate log;
 #[macro_use]
 mod util;
+mod audit;
 mod build;
 mod bundle;
 mod cli;
@@ -72,6 +73,7 @@ fn runner() -> HarnessResult<()> {
         HarnessWhat::Test => test::run_test()?,
         HarnessWhat::Bundle(bundle_mode) => bundle::bundle(bundle_mode)?,
         HarnessWhat::LinuxPackage(pkg) => linuxpkg::create_linuxpkg(pkg)?,
+        HarnessWhat::Audit => audit::audit()?,
     }
     info!(
         "Successfully finished running harness for {}",

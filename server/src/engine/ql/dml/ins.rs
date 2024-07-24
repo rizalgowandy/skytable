@@ -212,6 +212,10 @@ pub(super) fn parse_data_tuple_syntax<'a, Qd: QueryData<'a>>(
                 data.push(l.into());
             }
             Token![null] => data.push(Datacell::null()),
+            Token::DCList(dcl) => data.push(Datacell::new_list(unsafe {
+                // UNSAFE(@ohsayan): single threaded operation; no parallel access to token stream. see the note `Token::take_list`
+                Token::take_list(dcl)
+            })),
             Token![@] if state.cursor_signature_match_fn_arity0_rounded() => match unsafe {
                 // UNSAFE(@ohsayan): Just verified at guard
                 handle_func_sub(state)

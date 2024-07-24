@@ -906,7 +906,6 @@ mod restore_impls {
         }
     }
     impl<'a> DataSource for TrackedReaderContext<'a, FSpecModelDataAofV1> {
-        const RELIABLE_SOURCE: bool = false;
         type Error = ErrorHack;
         fn has_remaining(&self, cnt: usize) -> bool {
             self.remaining() >= cnt as u64

@@ -173,27 +173,27 @@ impl<T> Drop for Queue<T> {
 #[cfg(test)]
 type StringQueue = Queue<String>;
 
-#[test]
+#[sky_macros::test]
 fn empty() {
     let q = StringQueue::new();
     drop(q);
 }
 
-#[test]
+#[sky_macros::test]
 fn empty_deq() {
     let g = pin();
     let q = StringQueue::new();
     assert_eq!(q.blocking_try_dequeue(&g), None);
 }
 
-#[test]
+#[sky_macros::test]
 fn empty_enq() {
     let g = pin();
     let q = StringQueue::new();
     q.blocking_enqueue("hello".into(), &g);
 }
 
-#[test]
+#[sky_macros::test]
 fn multi_eq_dq() {
     const ITEMS_L: usize = 100;
     use std::{sync::Arc, thread};

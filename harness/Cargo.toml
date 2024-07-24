@@ -9,8 +9,8 @@ build = "build.rs"
 # internal deps
 libsky = { path = "../libsky" }
 # external deps
-env_logger = "0.11.3"
-log = "0.4.21"
-zip = { version = "2.1.3", features = ["deflate"] }
+env_logger = "0.11.4"
+log = "0.4.22"
+zip = { version = "2.1.5", features = ["deflate"] }
 powershell_script = "1.1.0"
-openssl = { version = "0.10.64", features = ["vendored"] }
+openssl = { version = "0.10.66", features = ["vendored"] }

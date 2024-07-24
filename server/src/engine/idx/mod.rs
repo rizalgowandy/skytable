@@ -53,6 +53,7 @@ pub type IndexST<K, V, S = std::collections::hash_map::RandomState> =
 
 /// Any type implementing this trait can be used as a key inside memory engine structures
 pub trait AsKey: Hash + Eq + 'static {
+    #[allow(dead_code)]
     /// Read the key
     fn read_key(&self) -> &Self;
 }
@@ -65,6 +66,7 @@ impl<T: Hash + Eq + ?Sized + 'static> AsKey for T {
 
 /// If your T can be cloned/copied and implements [`AsKey`], then this trait will automatically be implemented
 pub trait AsKeyClone: AsKey + Clone {
+    #[allow(dead_code)]
     /// Read the key and return a clone
     fn read_key_clone(&self) -> Self;
 }
@@ -87,6 +89,7 @@ impl<T: ?Sized + 'static> AsValue for T {
 
 /// Any type implementing this trait can be used as a value inside memory engine structures
 pub trait AsValueClone: AsValue + Clone {
+    #[allow(dead_code)]
     /// Read the value and return a clone
     fn read_value_clone(&self) -> Self;
 }
@@ -114,6 +117,7 @@ pub trait IndexBaseSpec: Sized {
     /// Initialize an empty instance of the index
     fn idx_init() -> Self;
     /// Initialize a pre-loaded instance of the index
+    #[allow(dead_code)]
     fn idx_init_with(s: Self) -> Self;
     /// Init the idx with the given cap
     ///
@@ -126,6 +130,7 @@ pub trait IndexBaseSpec: Sized {
     }
     #[cfg(debug_assertions)]
     /// Returns a reference to the index metrics
+    #[allow(dead_code)]
     fn idx_metrics(&self) -> &Self::Metrics;
 }
 
@@ -151,11 +156,14 @@ pub trait MTIndex<E, K, V>: IndexBaseSpec {
         V: 'v,
         Self: 't;
     fn mt_iter_kv<'t, 'g, 'v>(&'t self, g: &'g Guard) -> Self::IterKV<'t, 'g, 'v>;
+    #[allow(dead_code)]
     fn mt_iter_key<'t, 'g, 'v>(&'t self, g: &'g Guard) -> Self::IterKey<'t, 'g, 'v>;
+    #[allow(dead_code)]
     fn mt_iter_val<'t, 'g, 'v>(&'t self, g: &'g Guard) -> Self::IterVal<'t, 'g, 'v>;
     /// Returns the length of the index
     fn mt_len(&self) -> usize;
     /// Attempts to compact the backing storage
+    #[allow(dead_code)]
     fn mt_compact(&self) {}
     /// Clears all the entries in the MTIndex
     fn mt_clear(&self, g: &Guard);
@@ -169,6 +177,7 @@ pub trait MTIndex<E, K, V>: IndexBaseSpec {
     fn mt_upsert(&self, e: E, g: &Guard) -> bool
     where
         V: AsValue;
+    #[allow(dead_code)]
     // read
     fn mt_contains<Q>(&self, key: &Q, g: &Guard) -> bool
     where
@@ -184,17 +193,20 @@ pub trait MTIndex<E, K, V>: IndexBaseSpec {
         Q: ?Sized + Comparable<K>,
         't: 'v,
         'g: 't + 'v;
+    #[allow(dead_code)]
     /// Returns a clone of the value corresponding to the key, if it exists
     fn mt_get_cloned<Q>(&self, key: &Q, g: &Guard) -> Option<V>
     where
         Q: ?Sized + Comparable<K>,
         V: AsValueClone;
     // update
+    #[allow(dead_code)]
     /// Returns true if the entry is updated
     fn mt_update(&self, e: E, g: &Guard) -> bool
     where
         K: AsKeyClone,
         V: AsValue;
+    #[allow(dead_code)]
     /// Updates the entry and returns the old value, if it exists
     fn mt_update_return<'t, 'g, 'v>(&'t self, e: E, g: &'g Guard) -> Option<&'v V>
     where
@@ -207,6 +219,7 @@ pub trait MTIndex<E, K, V>: IndexBaseSpec {
     fn mt_delete<Q>(&self, key: &Q, g: &Guard) -> bool
     where
         Q: ?Sized + Comparable<K>;
+    #[allow(dead_code)]
     /// Removes the entry and returns it, if it exists
     fn mt_delete_return<'t, 'g, 'v, Q>(&'t self, key: &Q, g: &'g Guard) -> Option<&'v V>
     where
@@ -252,8 +265,10 @@ pub trait STIndex<K: ?Sized, V>: IndexBaseSpec {
         V: 'a;
     /// returns the length of the idx
     fn st_len(&self) -> usize;
+    #[allow(dead_code)]
     /// Attempts to compact the backing storage
     fn st_compact(&mut self) {}
+    #[allow(dead_code)]
     /// Clears all the entries in the STIndex
     fn st_clear(&mut self);
     // write
@@ -278,6 +293,7 @@ pub trait STIndex<K: ?Sized, V>: IndexBaseSpec {
     where
         K: AsKey + Borrow<Q>,
         Q: ?Sized + AsKey;
+    #[allow(dead_code)]
     /// Returns a clone of the value corresponding to the key, if it exists
     fn st_get_cloned<Q>(&self, key: &Q) -> Option<V>
     where
@@ -295,6 +311,7 @@ pub trait STIndex<K: ?Sized, V>: IndexBaseSpec {
         K: AsKey + Borrow<Q>,
         V: AsValue,
         Q: ?Sized + AsKey;
+    #[allow(dead_code)]
     /// Updates the entry and returns the old value, if it exists
     fn st_update_return<Q>(&mut self, key: &Q, val: V) -> Option<V>
     where
@@ -312,15 +329,19 @@ pub trait STIndex<K: ?Sized, V>: IndexBaseSpec {
     where
         K: AsKey + Borrow<Q>,
         Q: ?Sized + AsKey;
+    #[allow(dead_code)]
     fn st_delete_if<Q>(&mut self, key: &Q, iff: impl Fn(&V) -> bool) -> Option<bool>
     where
         K: AsKey + Borrow<Q>,
         Q: ?Sized + AsKey;
     // iter
+    #[allow(dead_code)]
     /// Returns an iterator over a tuple of keys and values
     fn st_iter_kv<'a>(&'a self) -> Self::IterKV<'a>;
+    #[allow(dead_code)]
     /// Returns an iterator over the keys
     fn st_iter_key<'a>(&'a self) -> Self::IterKey<'a>;
+    #[allow(dead_code)]
     /// Returns an iterator over the values
     fn st_iter_value<'a>(&'a self) -> Self::IterValue<'a>;
 }
@@ -356,10 +377,13 @@ pub trait STIndexSeq<K, V>: STIndex<K, V> {
     fn stseq_ord_kv<'a>(&'a self) -> Self::IterOrdKV<'a>;
     /// Returns an ordered iterator over the keys
     fn stseq_ord_key<'a>(&'a self) -> Self::IterOrdKey<'a>;
+    #[allow(dead_code)]
     /// Returns an ordered iterator over the values
     fn stseq_ord_value<'a>(&'a self) -> Self::IterOrdValue<'a>;
     // owned
     fn stseq_owned_kv(self) -> Self::OwnedIterKV;
+    #[allow(dead_code)]
     fn stseq_owned_keys(self) -> Self::OwnedIterKeys;
+    #[allow(dead_code)]
     fn stseq_owned_values(self) -> Self::OwnedIterValues;
 }
