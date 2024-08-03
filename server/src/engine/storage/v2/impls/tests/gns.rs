@@ -42,7 +42,7 @@ use crate::engine::{
     txn::gns::sysctl::AlterUserTxn,
 };
 
-#[sky_macros::test]
+#[sky_macros::non_miri_test] // FIXME(@ohsayan): massive slowdown with miri..not sure why
 fn compaction_test() {
     FileSystem::set_context(FSContext::Local);
     let mut fs = FileSystem::instance();

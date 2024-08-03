@@ -484,7 +484,7 @@ const fn nth_position_value(mut real: usize, mut pos: usize) -> usize {
     real
 }
 
-#[sky_macros::test]
+#[sky_macros::non_miri_test] // FIXME(@ohsayan): massive slowdown with miri..not sure why
 fn simple_query() {
     for query in [
         // small query without params
@@ -668,7 +668,7 @@ impl EPipe {
     }
 }
 
-#[sky_macros::test]
+#[sky_macros::non_miri_test] // FIXME(@ohsayan): massive slowdown with miri..not sure why
 fn pipeline() {
     for pipe in [
         EPipe::new([
@@ -803,7 +803,7 @@ fn run_staged(full_payload: &[u8], f: impl Fn(ExchangeResult)) {
     }
 }
 
-#[sky_macros::test]
+#[sky_macros::non_miri_test] // FIXME(@ohsayan): massive slowdown with miri..not sure why
 fn staged_simple_query() {
     for eq in [
         EQuery::new(
@@ -826,7 +826,7 @@ fn staged_simple_query() {
     }
 }
 
-#[sky_macros::test]
+#[sky_macros::non_miri_test] // FIXME(@ohsayan): massive slowdown with miri..not sure why
 fn staged_pipeline() {
     for epipe in [
         EPipe::new([

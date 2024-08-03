@@ -134,11 +134,10 @@ impl<T, const CAP: usize> FixedVec<T, CAP> {
 
 impl<T, const CAP: usize> Drop for FixedVec<T, CAP> {
     fn drop(&mut self) {
-        // dtor
         self.clear();
         unsafe {
             // UNSAFE(@ohsayan): dealloc
-            unsafe_apis::dealloc_array(self.p.as_ptr(), self.len());
+            unsafe_apis::dealloc_array(self.p.as_ptr(), CAP);
         }
     }
 }

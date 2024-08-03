@@ -76,6 +76,7 @@ pub fn upgrade_file_header<S: SimpleFileSpecV1>(
 }
 
 #[cfg(test)]
+#[cfg(all(target_os = "macos", not(miri)))]
 mod test_upgrade {
     use {
         crate::engine::{

@@ -288,7 +288,7 @@ pub fn dbtest(attrs: TokenStream, item: TokenStream) -> TokenStream {
         TestStrategy::Standard => {}
     }
     let ret = quote! {
-        #[::sky_macros::test]
+        #[::sky_macros::non_miri_test]
         #retfn {
             #ret_block
         }

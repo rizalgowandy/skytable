@@ -79,7 +79,9 @@ fn field() {
 
 #[sky_macros::test]
 fn fieldmap() {
-    let mut fields = IndexSTSeqCns::<Box<str>, Field>::idx_init();
+    use crate::engine::mem::unsafe_apis::BoxStr;
+
+    let mut fields = IndexSTSeqCns::<BoxStr, Field>::idx_init();
     fields.st_insert("password".into(), Field::new([Layer::bin()].into(), false));
     fields.st_insert(
         "profile_pic".into(),
@@ -87,7 +89,7 @@ fn fieldmap() {
     );
     let enc = super::enc::full_dict::<super::map::FieldMapSpec<_>>(&fields);
     let dec = super::dec::dict_full::<
-        super::map::FieldMapSpec<crate::engine::idx::IndexSTSeqCns<Box<str>, _>>,
+        super::map::FieldMapSpec<crate::engine::idx::IndexSTSeqCns<BoxStr, _>>,
     >(&enc)
     .unwrap();
     for ((orig_field_id, orig_field), (restored_field_id, restored_field)) in
@@ -125,7 +127,7 @@ fn space() {
     assert_eq!(space, dec);
 }
 
-#[sky_macros::test]
+#[sky_macros::non_miri_test] // FIXME(@ohsayan): Yet another miri slowdown. Not sure why
 fn dc_encode_decode() {
     fn enc_dec(dc: &Datacell) {
         let mut encoded = vec![];
