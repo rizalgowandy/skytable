@@ -28,8 +28,13 @@ use {
     super::*,
     crate::engine::{
         data::{lit::Lit, DictGeneric},
-        ql::{ast::parse_ast_node_full, ddl::syn::DictBasic},
+        error::QueryError,
+        ql::{
+            ast::parse_ast_node_full,
+            ddl::syn::{self, DictBasic, LayerSpec},
+        },
     },
+    ast::State,
 };
 
 macro_rules! fold_dict {
@@ -229,6 +234,37 @@ mod dict {
         });
     }
 }
+
+#[sky_macros::test]
+fn list_syn_parse() {
+    let tokens = b"[[[string]]]";
+    let tokens = lex_insecure(tokens).unwrap();
+    let mut state = State::new_inplace(&tokens[1..]);
+    let lspec = syn::parse_list_decl_syntax(&mut state).unwrap();
+    assert_eq!(
+        lspec,
+        vec![
+            LayerSpec::new("string".into(), into_dict!()),
+            LayerSpec::new("list".into(), into_dict!()),
+            LayerSpec::new("list".into(), into_dict!()),
+            LayerSpec::new("list".into(), into_dict!()),
+        ]
+    )
+}
+
+#[sky_macros::test]
+fn list_syn_parse_fail() {
+    let failure_cases = ["[string", "[[string]", "[string string]", "]"];
+    for failure_case in failure_cases {
+        let tokens = lex_insecure(failure_case.as_bytes()).unwrap();
+        let mut state = State::new_inplace(&tokens[1..]);
+        assert_eq!(
+            syn::parse_list_decl_syntax(&mut state).unwrap_err(),
+            QueryError::QLInvalidTypeDefinitionSyntax
+        );
+    }
+}
+
 mod null_dict_tests {
     use super::*;
     mod dict {

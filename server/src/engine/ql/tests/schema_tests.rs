@@ -585,7 +585,52 @@ mod schemas {
             |r: CreateModel| assert_eq!(r, ret),
         );
     }
+    #[sky_macros::test]
+    fn simple_list_syntax() {
+        let simple_list_decls = [
+            (
+                "[string]",
+                vec![
+                    LayerSpec::new("string".into(), into_dict!()),
+                    LayerSpec::new("list".into(), into_dict!()),
+                ],
+            ),
+            (
+                "[[string]]",
+                vec![
+                    LayerSpec::new("string".into(), into_dict!()),
+                    LayerSpec::new("list".into(), into_dict!()),
+                    LayerSpec::new("list".into(), into_dict!()),
+                ],
+            ),
+        ];
+        for (list_decl, expected) in simple_list_decls {
+            let query =
+                format!("create model myspace.mymodel(username: string, notes: {list_decl})")
+                    .into_bytes();
+            let tokens = lex_insecure(&query).unwrap();
+            let cm: CreateModel = ast::parse_ast_node_full(&tokens[2..]).unwrap();
+            assert_eq!(
+                cm,
+                CreateModel::new(
+                    ("myspace", "mymodel").into(),
+                    vec![
+                        FieldSpec::new(
+                            "username".into(),
+                            vec![LayerSpec::new("string".into(), into_dict!())],
+                            false,
+                            false
+                        ),
+                        FieldSpec::new("notes".into(), expected, false, false)
+                    ],
+                    into_dict!(),
+                    false,
+                )
+            );
+        }
+    }
 }
+
 mod dict_field_syntax {
     use super::*;
     use crate::engine::ql::{
@@ -704,6 +749,59 @@ mod dict_field_syntax {
                 },
             )
         );
+    }
+    #[sky_macros::test]
+    fn field_syn_simple_list_syntax() {
+        let samples = [
+            (
+                "notes {
+                    nullable: true,
+                    type: [[string]],
+                    jingle_bells: \"snow\"
+                }",
+                ExpandedField::new(
+                    Ident::from("notes"),
+                    vec![
+                        LayerSpec::new(Ident::from("string"), into_dict!()),
+                        LayerSpec::new(Ident::from("list"), into_dict!()),
+                        LayerSpec::new(Ident::from("list"), into_dict!()),
+                    ],
+                    null_dict! {
+                        "nullable" => Lit::new_bool(true),
+                        "jingle_bells" => Lit::new_string("snow".into()),
+                    },
+                ),
+            ),
+            (
+                "notes { type: [[string]] }",
+                ExpandedField::new(
+                    Ident::from("notes"),
+                    vec![
+                        LayerSpec::new(Ident::from("string"), into_dict!()),
+                        LayerSpec::new(Ident::from("list"), into_dict!()),
+                        LayerSpec::new(Ident::from("list"), into_dict!()),
+                    ],
+                    into_dict!(),
+                ),
+            ),
+            (
+                "notes { type: [[string]], }",
+                ExpandedField::new(
+                    Ident::from("notes"),
+                    vec![
+                        LayerSpec::new(Ident::from("string"), into_dict!()),
+                        LayerSpec::new(Ident::from("list"), into_dict!()),
+                        LayerSpec::new(Ident::from("list"), into_dict!()),
+                    ],
+                    into_dict!(),
+                ),
+            ),
+        ];
+        for (sample, expected) in samples {
+            let tok = lex_insecure(sample.as_bytes()).unwrap();
+            let ef = parse_ast_node_full::<ExpandedField>(&tok).unwrap();
+            assert_eq!(ef, expected);
+        }
     }
 }
 mod alter_model_remove {
