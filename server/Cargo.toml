@@ -14,28 +14,28 @@ libsky = { path = "../libsky" }
 # internal deps
 libsky = { path = "../libsky" }
 sky_macros = { path = "../sky-macros" }
-rcrypt = "0.4.0"
+rcrypt = "0.4"
 # external deps
-bytes = "1.6.1"
-env_logger = "0.11.4"
-log = "0.4.22"
-openssl = { version = "0.10.66", features = ["vendored"] }
-crossbeam-epoch = { version = "0.9.18" }
-parking_lot = "0.12.3"
-serde = { version = "1.0.204", features = ["derive"] }
-tokio = { version = "1.39.1", features = ["full"] }
-tokio-openssl = "0.6.4"
-uuid = { version = "1.10.0", features = ["v4", "fast-rng", "macro-diagnostics"] }
-crc = "3.2.1"
-serde_yaml = "0.9.33"
-chrono = "0.4.38"
+bytes = "1"
+env_logger = "0.11"
+log = "0.4"
+openssl = { version = "0.10", features = ["vendored"] }
+crossbeam-epoch = { version = "0.9" }
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tokio-openssl = "0.6"
+uuid = { version = "1", features = ["v4", "fast-rng", "macro-diagnostics"] }
+crc = "3"
+serde_yaml = "0.9"
+chrono = "0.4"
 
 [target.'cfg(all(not(target_env = "msvc"), not(miri)))'.dependencies]
 # external deps
-jemallocator = "0.5.4"
+jemallocator = "0.5"
 [target.'cfg(target_os = "windows")'.dependencies]
 # external deps
-windows = { version = "0.58.0", features = [
+windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_System_IO",
   "Win32_Storage_FileSystem",
@@ -44,12 +44,12 @@ windows = { version = "0.58.0", features = [
 
 [target.'cfg(unix)'.dependencies]
 # external deps
-libc = "0.2.155"
+libc = "0.2"
 
 [dev-dependencies]
 # external deps
-rand = "0.8.5"
-tokio = { version = "1.39.1", features = ["test-util"] }
+rand = "0.8"
+tokio = { version = "1", features = ["test-util"] }
 skytable = { git = "https://github.com/skytable/client-rust.git", branch = "devel" }
 
 [features]

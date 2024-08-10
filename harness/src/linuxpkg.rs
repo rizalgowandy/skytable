@@ -27,7 +27,8 @@
 use {
     crate::{
         build::{self, BuildMode},
-        {util, HarnessResult},
+        error::HarnessError,
+        util, HarnessResult,
     },
     libsky::variables::VERSION,
 };
@@ -68,6 +69,11 @@ impl ToString for LinuxPackageType {
 
 /// Creates a Linux package for the provided Linux package type
 pub fn create_linuxpkg(package_type: LinuxPackageType) -> HarnessResult<()> {
+    if !cfg!(target_os = "linux") {
+        return Err(HarnessError::Other(format!(
+            "invalid target for building Debian package. Host OS must be Linux-based"
+        )));
+    }
     info!("Building binaries for Linux package");
     let _ = build::build(BuildMode::Release)?;
     info!("Creating Linux package");
