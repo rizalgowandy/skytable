@@ -101,12 +101,13 @@ All changes in this project will be noted in this file.
 
 ## Version 0.8.0
 
-> This is the first release of Skytable Octave, and it changes the query API entirely making all previous versions incompatible 
+> This is the first release of Skytable Octave, and it changes the query API entirely making all previous versions incompatible
 > excluding the data files which are automatically upgraded per our backwards compatibility guarantees
 
 ### Additions
 
 #### BlueQL query language
+
 - DDL:
   - `space`s are the equivalent of the `keyspace` from previous versions
   - `model`s are the equivalent of `table`s from previous version
@@ -133,13 +134,17 @@ All changes in this project will be noted in this file.
     - `INSERT INTO <space>.<model>(col, col2, col3, ...)`
       - Insert queries can use several ways of insertion including:
         - a standard order of declared columns like this:
+
           ```sql
           INSERT INTO myspace.mymodel(col1, col2, col3, ...)
           ```
+
         - using a map:
+
           ```sql
           INSERT INTO myspace.mymodel { col1: val1, col2: val2, col4: val4, col3: val3 }
           ```
+
       - Inserts can also make use of function calls during inserts:
         - It can be called like this: `INSERT INTO myspace.mymodel(@uuidstr, ...)`
         - The following functions are available:
@@ -162,12 +167,14 @@ All changes in this project will be noted in this file.
 - Effectively balances performance and reliability tasks
 
 #### Skyhash 2 protocol
+
 - The `Skyhash-2` protocol now uses a multi-stage connection sequence for improved security and performance
 - Seamless auth
 - More types
 - Fewer retransmissions
 
 #### Storage engines
+
 - **New `deltax` storage engine for data**:
   - The `deltax` storage engine monitors the database for changes and only records the changes in an append only file
   - The interval can be adjusted per requirements of reliability
@@ -360,96 +367,126 @@ All changes in this project will be noted in this file.
 - **Multiple keyspaces**:
   - Keyspaces hold multiple tables and determine the replication strategy
   - Keyspaces can be created with:
+
     ```sql
     CREATE KEYSPACE <name>
     ```
+
   - The `system` keyspace is reserved for the system while the `default` keyspace is
     the one available by default. The `system` or `default` keyspace cannot be removed
   - Keyspaces can be deleted with:
+
     ```sql
     DROP KEYSPACE <name>
     ```
+
   - If a keyspace still has tables, it cannot be dropped by using `DROP KEYSPACE <name>`, instead
     one needs to use `DROP KEYSPACE <name> force` to force drop the keyspace
 - **Multiple tables**:
   - Tables hold the actual data. When you connect to the server, you are connected to the `default`
     table in the `default` keyspace. This table is non-removable
   - Tables can be created with:
+
     ```sql
     CREATE TABLE <entity> <model>(modelargs) <properties>
     ```
+
   - Tables can be dropped with:
+
     ```sql
     DROP TABLE <entity>
     ```
-- **Entity groups**: While using DDL queries and inspection queries, we can use the _Fully Qualified Entity_ (FQE) syntax instead of the table name. For example, to `inspect` the `cyan` table in keyspace `supercyan`, one can simply run:
+
+- **Entity groups**: While using DDL queries and inspection queries, we can use the *Fully Qualified Entity* (FQE) syntax instead of the table name. For example, to `inspect` the `cyan` table in keyspace `supercyan`, one can simply run:
+
   ```sql
   INSPECT TABLE supercyan:cyan
   ```
+
   The syntax is:
+
   ```sql
   keyspace:table
   ```
+
   **Note**: Both keyspaces and tables are entities. The names of entities must:
   - Begin with an underscore (\_) or an ASCII alphabet
   - Not begin with a number (0-9)
   - Must have lesser than 64 characters
 - **Keymap data model**:
   - To create a keymap table, run:
+
     ```sql
     CREATE TABLE <entity> keymap(<type>,<type>)
     ```
+
   - The following types were introduced:
     - `str`: A valid unicode string
     - `binstr`: A binary string
 - **Volatile table property**:
 
   - To create a volatile table, irrespective of the data model, run:
+
     ```sql
     CREATE TABLE <entity> <model>(modelargs) volatile
     ```
+
   - Volatile tables always exist, but the data in them does not persist between restarts. This makes them extremely useful for caches
 
 - **Inspection**:
   - Keyspaces can be inspected with:
+
     ```sql
     INSPECT KEYSPACE <name>
     ```
+
     This will list all the tables in the keyspace
   - Tables can be inspected with:
+
     ```sql
     INSPECT TABLE <entity>
     ```
+
     This will give information about the data model and other properties of the table
   - To list all keyspaces, this can be run:
+
     ```sql
     INSPECT KEYSPACES
     ```
+
 - **Cyanstore 1A disk storage format**: Cyanstore (v1A) was a new storage format built for the multi-keyspace-table world. It efficiently stores and retrieves records, tables and keyspaces
 - **Realtime keyspace/table switch**
   - To switch to a new keyspace in real-time, one needs to run:
+
     ```sql
     USE keyspace
     ```
+
   - To switch to a new table in real-time, one needs to run:
+
     ```sql
     USE keyspace:table
     ```
+
 - **Entity respecting actions**:
 
   - **`FLUSHDB`**: To flush all the data in a specific table, run:
+
     ```sql
     FLUSHDB <entity>
     ```
+
   - **`DBSIZE`**: To see the number of entries in a specific table, run:
+
     ```sql
     DBSIZE <entity>
     ```
+
   - **`LSKEYS`**:
     - `LSKEYS` will return keys from the current table
-    - `LSKEYS <count>` will return _count_ keys from the current table
+    - `LSKEYS <count>` will return *count* keys from the current table
     - `LSKEYS <entity>` will return keys from the given table
-    - `LSKEYS <entity> <count>` will return _count_ keys from the given table
+    - `LSKEYS <entity> <count>` will return *count* keys from the given table
 
 - **Snapshot isolation for strong actions**: This makes strong actions
   extremely reliable when compared to the earlier releases
@@ -599,7 +636,7 @@ Fix persistence (see [#150](https://github.com/skytable/skytable/issues/150))
 
 - Command line configuration added to `tdb`
 - ⚠ Positional arguments in `tsh` and `tdb-bench` have been removed
-- `MKSNAP` now has an _enhanced version_ which enables snapshots to be created even if they're disabled on the server side
+- `MKSNAP` now has an *enhanced version* which enables snapshots to be created even if they're disabled on the server side
 - If `BGSAVE` fails, no more writes will be accepted on the server side. All commands that try to modify data will return an internal server error
 - `tdb-bench` now provides JSON output with the `--json` flag
 - The `Dockerfile` was fixed to use command line arguments instead of the configuration file which caused problems

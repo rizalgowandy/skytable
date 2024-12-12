@@ -83,7 +83,7 @@ commit messages to avoid triggering the workflows.
 3. Sign the CLA (if you haven't signed it already)
 4. One of the maintainers will review your patch and suggest changes if required
 5. Once your patch is approved, it will be merged into the respective branch
-6. Done, you're now a contributor 🎉!
+6. Done, you're now a contributor. Thank you.
 
 ## Development environment setup
 

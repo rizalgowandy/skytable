@@ -7,9 +7,9 @@ assignees: ''
 
 ---
 
-**Description**
+## Description
 <!-- briefly describe your concern -->
 
-**Suggested solutions**
+## Suggested solutions
 <!-- if you have any idea for resolving the performance 
 concern, share it here. Leave it blank if you aren't sure -->

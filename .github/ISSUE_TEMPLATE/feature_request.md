@@ -1,11 +1,11 @@
 ---
-name: Feature request 🚀
-about: Got an idea 💡 for this project? Amazing! Tell us about it so that we can get it implemented!
+name: Feature request
+about: Got an idea for this project? Let's see if we can get it implemented.
 title: 'Feature: '
 labels: C-enhancement
 assignees: ''
 
 ---
 
-**Description**
+## Description
 <!-- briefly describe the feature you'd like -->

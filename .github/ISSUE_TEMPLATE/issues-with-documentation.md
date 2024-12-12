@@ -1,5 +1,5 @@
 ---
-name: Issues with documentation 🧾
+name: Issues with documentation
 about: Found any incorrect/missing/ambiguous documentation? Use this issue type
 title: 'Docs: '
 labels: C-docs
@@ -7,15 +7,16 @@ assignees: ''
 
 ---
 
-**Description**
+## Description
 <!-- describe what needs to be documented/is improperly documented briefly -->
 
-**Meta**
- - **Release tag:**
+## Meta
+
+- **Release tag:**
 <!-- provide a branch or commit hash if relevant - otherwise type 'None' -->
- - **Branch:**
+- **Branch:**
 - **Commit ID:**
 - **Operating system:**
 
-**Additional context**
+## Additional context
 <!-- Add any other context about the problem here. -->
