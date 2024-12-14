@@ -66,7 +66,8 @@ impl<E, C: Config> IndexBaseSpec for Raw<E, C> {
 }
 
 impl<E: TreeElement, C: Config> MTIndexExt<E, E::Key, E::Value> for Raw<E, C> {
-    type IterEntry<'t, 'g, 'v> = super::iter::IterEntry<'t, 'g, 'v, E, C>
+    type IterEntry<'t, 'g, 'v>
+        = super::iter::IterEntry<'t, 'g, 'v, E, C>
     where
         'g: 't + 'v,
         't: 'v,
@@ -80,7 +81,8 @@ impl<E: TreeElement, C: Config> MTIndexExt<E, E::Key, E::Value> for Raw<E, C> {
 }
 
 impl<E: TreeElement, C: Config> MTIndex<E, E::Key, E::Value> for Raw<E, C> {
-    type IterKV<'t, 'g, 'v> = IterKV<'t, 'g, 'v, E, C>
+    type IterKV<'t, 'g, 'v>
+        = IterKV<'t, 'g, 'v, E, C>
     where
         'g: 't + 'v,
         't: 'v,
@@ -88,14 +90,16 @@ impl<E: TreeElement, C: Config> MTIndex<E, E::Key, E::Value> for Raw<E, C> {
         E::Value: 'v,
         Self: 't;
 
-    type IterKey<'t, 'g, 'v> = IterKey<'t, 'g, 'v, E, C>
+    type IterKey<'t, 'g, 'v>
+        = IterKey<'t, 'g, 'v, E, C>
     where
         'g: 't + 'v,
         't: 'v,
         E::Key: 'v,
         Self: 't;
 
-    type IterVal<'t, 'g, 'v> = IterVal<'t, 'g, 'v, E, C>
+    type IterVal<'t, 'g, 'v>
+        = IterVal<'t, 'g, 'v, E, C>
     where
         'g: 't + 'v,
         't: 'v,

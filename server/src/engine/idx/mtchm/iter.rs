@@ -196,7 +196,10 @@ trait IterConfig<T> {
 
 struct CfgIterEntry;
 impl<T: TreeElement> IterConfig<T> for CfgIterEntry {
-    type Ret<'a> = &'a T where T: 'a;
+    type Ret<'a>
+        = &'a T
+    where
+        T: 'a;
     fn some<'a>(v: &'a T) -> Option<Self::Ret<'a>> {
         Some(v)
     }
@@ -204,7 +207,10 @@ impl<T: TreeElement> IterConfig<T> for CfgIterEntry {
 
 struct CfgIterKV;
 impl<T: TreeElement> IterConfig<T> for CfgIterKV {
-    type Ret<'a> = (&'a T::Key, &'a T::Value) where T: 'a;
+    type Ret<'a>
+        = (&'a T::Key, &'a T::Value)
+    where
+        T: 'a;
     fn some<'a>(v: &'a T) -> Option<Self::Ret<'a>> {
         Some((v.key(), v.val()))
     }
@@ -212,7 +218,10 @@ impl<T: TreeElement> IterConfig<T> for CfgIterKV {
 
 struct CfgIterKey;
 impl<T: TreeElement> IterConfig<T> for CfgIterKey {
-    type Ret<'a> = &'a T::Key where T::Key: 'a;
+    type Ret<'a>
+        = &'a T::Key
+    where
+        T::Key: 'a;
     fn some<'a>(v: &'a T) -> Option<Self::Ret<'a>> {
         Some(v.key())
     }
@@ -220,7 +229,10 @@ impl<T: TreeElement> IterConfig<T> for CfgIterKey {
 
 struct CfgIterVal;
 impl<T: TreeElement> IterConfig<T> for CfgIterVal {
-    type Ret<'a> = &'a T::Value where T::Value: 'a;
+    type Ret<'a>
+        = &'a T::Value
+    where
+        T::Value: 'a;
     fn some<'a>(v: &'a T) -> Option<Self::Ret<'a>> {
         Some(v.val())
     }

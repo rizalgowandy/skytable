@@ -151,7 +151,10 @@ impl RawJournalAdapter for SimpleDBJournal {
     type GlobalState = SimpleDB;
     type EventMeta = SimpleDBOpcode;
     type CommitContext = ();
-    type Context<'a> = () where Self: 'a;
+    type Context<'a>
+        = ()
+    where
+        Self: 'a;
     type FullSyncCtx<'a> = &'a Self::GlobalState;
     fn rewrite_full_journal<'a>(
         writer: &mut RawJournalWriter<Self>,

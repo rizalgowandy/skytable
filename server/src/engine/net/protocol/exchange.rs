@@ -262,7 +262,7 @@ impl<'a> Exchange<'a> {
     pub fn try_complete(
         scanner: BufferedScanner<'a>,
         state: ExchangeState,
-    ) -> Result<(ExchangeResult, usize), ExchangeError> {
+    ) -> Result<(ExchangeResult<'a>, usize), ExchangeError> {
         Self::new(scanner).complete(state)
     }
 }

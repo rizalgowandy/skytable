@@ -223,7 +223,11 @@ trait IndexSTSeqDllIterOrdConfig<K, V> {
 struct IndexSTSeqDllIterOrdConfigFull;
 
 impl<K, V> IndexSTSeqDllIterOrdConfig<K, V> for IndexSTSeqDllIterOrdConfigFull {
-    type Ret<'a> = (&'a K, &'a V) where K: 'a, V: 'a;
+    type Ret<'a>
+        = (&'a K, &'a V)
+    where
+        K: 'a,
+        V: 'a;
     #[inline(always)]
     unsafe fn read_ret<'a>(ptr: *const IndexSTSeqDllNode<K, V>) -> Option<Self::Ret<'a>>
     where
@@ -237,7 +241,8 @@ impl<K, V> IndexSTSeqDllIterOrdConfig<K, V> for IndexSTSeqDllIterOrdConfigFull {
 struct IndexSTSeqDllIterOrdConfigKey;
 
 impl<K, V> IndexSTSeqDllIterOrdConfig<K, V> for IndexSTSeqDllIterOrdConfigKey {
-    type Ret<'a> = &'a K
+    type Ret<'a>
+        = &'a K
     where
         K: 'a,
         V: 'a;
@@ -254,7 +259,8 @@ impl<K, V> IndexSTSeqDllIterOrdConfig<K, V> for IndexSTSeqDllIterOrdConfigKey {
 struct IndexSTSeqDllIterOrdConfigValue;
 
 impl<K, V> IndexSTSeqDllIterOrdConfig<K, V> for IndexSTSeqDllIterOrdConfigValue {
-    type Ret<'a> = &'a V
+    type Ret<'a>
+        = &'a V
     where
         K: 'a,
         V: 'a;

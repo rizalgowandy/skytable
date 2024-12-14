@@ -578,18 +578,21 @@ where
     K: AsKey,
     V: AsValue,
 {
-    type IterKV<'a> = IndexSTSeqDllIterUnordKV<'a, K, V>
+    type IterKV<'a>
+        = IndexSTSeqDllIterUnordKV<'a, K, V>
     where
         Self: 'a,
         K: 'a,
         V: 'a;
 
-    type IterKey<'a> = IndexSTSeqDllIterUnordKey<'a, K, V>
+    type IterKey<'a>
+        = IndexSTSeqDllIterUnordKey<'a, K, V>
     where
         Self: 'a,
         K: 'a;
 
-    type IterValue<'a> = IndexSTSeqDllIterUnordValue<'a, K, V>
+    type IterValue<'a>
+        = IndexSTSeqDllIterUnordValue<'a, K, V>
     where
         Self: 'a,
         V: 'a;
@@ -731,16 +734,19 @@ where
     V: AsValue,
     C: Config<K, V>,
 {
-    type IterOrdKV<'a> = IndexSTSeqDllIterOrdKV<'a, K, V>
+    type IterOrdKV<'a>
+        = IndexSTSeqDllIterOrdKV<'a, K, V>
     where
         Self: 'a,
         K: 'a,
         V: 'a;
-    type IterOrdKey<'a> = IndexSTSeqDllIterOrdKey<'a, K, V>
+    type IterOrdKey<'a>
+        = IndexSTSeqDllIterOrdKey<'a, K, V>
     where
         Self: 'a,
         K: 'a;
-    type IterOrdValue<'a> = IndexSTSeqDllIterOrdValue<'a, K, V>
+    type IterOrdValue<'a>
+        = IndexSTSeqDllIterOrdValue<'a, K, V>
     where
         Self: 'a,
         V: 'a;

@@ -98,7 +98,10 @@ impl<EL: EventLogSpec> RawJournalAdapter for EventLogAdapter<EL> {
     };
     type Spec = <EL as EventLogSpec>::Spec;
     type GlobalState = <EL as EventLogSpec>::GlobalState;
-    type Context<'a> = () where Self: 'a;
+    type Context<'a>
+        = ()
+    where
+        Self: 'a;
     type EventMeta = <EL as EventLogSpec>::EventMeta;
     type CommitContext = ();
     type FullSyncCtx<'a> = EL::FullSyncCtx<'a>;
@@ -278,7 +281,10 @@ impl<Ba: BatchAdapterSpec> RawJournalAdapter for BatchAdapter<Ba> {
     const COMMIT_PREFERENCE: CommitPreference = CommitPreference::Direct;
     type Spec = <Ba as BatchAdapterSpec>::Spec;
     type GlobalState = <Ba as BatchAdapterSpec>::GlobalState;
-    type Context<'a> = () where Self: 'a;
+    type Context<'a>
+        = ()
+    where
+        Self: 'a;
     type EventMeta = <Ba as BatchAdapterSpec>::BatchRootType;
     type CommitContext = <Ba as BatchAdapterSpec>::CommitContext;
     type FullSyncCtx<'a> = Ba::FullSyncCtx<'a>;

@@ -37,7 +37,6 @@ use {
     std::{
         fmt,
         mem::MaybeUninit,
-        ptr::addr_of_mut,
         sync::atomic::{AtomicUsize, Ordering},
     },
     tokio::sync::mpsc::unbounded_channel,
@@ -266,7 +265,7 @@ impl Global {
     }
     unsafe fn __gref_raw() -> *mut MaybeUninit<GlobalState> {
         static mut G: MaybeUninit<GlobalState> = MaybeUninit::uninit();
-        addr_of_mut!(G)
+        &raw mut G
     }
     unsafe fn __gref(&self) -> &'static GlobalState {
         (&*Self::__gref_raw()).assume_init_ref()

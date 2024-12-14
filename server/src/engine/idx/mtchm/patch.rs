@@ -46,7 +46,7 @@ pub trait PatchWrite<E: TreeElement> {
     const WMODE: WriteFlag;
     type Ret<'a>;
     type Target: Hash + Comparable<E::Key>;
-    fn target<'a>(&'a self) -> &Self::Target;
+    fn target<'a>(&'a self) -> &'a Self::Target;
     fn nx_new(&mut self) -> E {
         unreachable!()
     }
@@ -66,7 +66,7 @@ impl<T: TreeElement> PatchWrite<T> for VanillaInsert<T> {
     const WMODE: WriteFlag = WRITEMODE_FRESH;
     type Ret<'a> = bool;
     type Target = T::Key;
-    fn target<'a>(&'a self) -> &Self::Target {
+    fn target<'a>(&'a self) -> &'a Self::Target {
         self.0.key()
     }
     // nx
@@ -87,7 +87,7 @@ impl<T: TreeElement> PatchWrite<T> for VanillaUpsert<T> {
     const WMODE: WriteFlag = WRITEMODE_ANY;
     type Ret<'a> = bool;
     type Target = T::Key;
-    fn target<'a>(&'a self) -> &Self::Target {
+    fn target<'a>(&'a self) -> &'a Self::Target {
         self.0.key()
     }
     // nx
@@ -111,7 +111,7 @@ impl<T: TreeElement> PatchWrite<T> for VanillaUpsertRet<T> {
     const WMODE: WriteFlag = WRITEMODE_ANY;
     type Ret<'a> = Option<&'a T::Value>;
     type Target = T::Key;
-    fn target<'a>(&'a self) -> &Self::Target {
+    fn target<'a>(&'a self) -> &'a Self::Target {
         self.0.key()
     }
     // nx
@@ -135,7 +135,7 @@ impl<T: TreeElement> PatchWrite<T> for VanillaUpdate<T> {
     const WMODE: WriteFlag = WRITEMODE_REFRESH;
     type Ret<'a> = bool;
     type Target = T::Key;
-    fn target<'a>(&'a self) -> &Self::Target {
+    fn target<'a>(&'a self) -> &'a Self::Target {
         self.0.key()
     }
     // nx
@@ -156,7 +156,7 @@ impl<T: TreeElement> PatchWrite<T> for VanillaUpdateRet<T> {
     const WMODE: WriteFlag = WRITEMODE_REFRESH;
     type Ret<'a> = Option<&'a T::Value>;
     type Target = T::Key;
-    fn target<'a>(&'a self) -> &Self::Target {
+    fn target<'a>(&'a self) -> &'a Self::Target {
         self.0.key()
     }
     // nx

@@ -199,14 +199,14 @@ impl Workload for UniformV1Std {
         let setup = &unsafe { setup::instance() };
         for i in 0..setup.object_count() {
             unsafe {
-                WL.queries.push((t.f)(i as u64));
+                (*&raw mut WL).queries.push((t.f)(i as u64));
             }
         }
         Target::set(setup.object_count())
     }
     fn task_cleanup(_: &Self::WorkloadContext) {
         unsafe {
-            WL.queries.clear();
+            (*&raw mut WL).queries.clear();
         }
     }
     fn task_exec_context_init(_: &Self::WorkloadContext) -> Self::TaskExecContext {}
@@ -218,7 +218,7 @@ impl Workload for UniformV1Std {
     }
     #[inline(always)]
     fn fetch_next_payload() -> Option<Self::WorkloadPayload> {
-        Target::step(|new| unsafe { &*WL.queries.as_ptr().add(new - 1) })
+        Target::step(|new| unsafe { &*((*&raw mut WL).queries.as_ptr().add(new - 1)) })
     }
     #[inline(always)]
     fn execute_payload(

@@ -75,18 +75,21 @@ where
     V: AsValue,
     S: BuildHasher + Default,
 {
-    type IterKV<'a> = StdMapIterKV<'a, K, V>
+    type IterKV<'a>
+        = StdMapIterKV<'a, K, V>
     where
         Self: 'a,
         K: 'a,
         V: 'a;
 
-    type IterKey<'a> = StdMapIterKey<'a, K, V>
+    type IterKey<'a>
+        = StdMapIterKey<'a, K, V>
     where
         Self: 'a,
         K: 'a;
 
-    type IterValue<'a> = StdMapIterVal<'a, K, V>
+    type IterValue<'a>
+        = StdMapIterVal<'a, K, V>
     where
         Self: 'a,
         V: 'a;

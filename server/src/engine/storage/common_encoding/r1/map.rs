@@ -277,9 +277,15 @@ impl FieldMapAny for HashMap<BoxStr, Field> {
     }
 }
 impl FieldMapAny for IndexSTSeqCns<crate::engine::mem::RawStr, Field> {
-    type Iterator<'a> = std::iter::Map<
-    crate::engine::idx::stdord_iter::IndexSTSeqDllIterOrdKV<'a, crate::engine::mem::RawStr, Field>,
-    fn((&crate::engine::mem::RawStr, &Field)) -> (&'a str, &'a Field)>
+    type Iterator<'a>
+        = std::iter::Map<
+        crate::engine::idx::stdord_iter::IndexSTSeqDllIterOrdKV<
+            'a,
+            crate::engine::mem::RawStr,
+            Field,
+        >,
+        fn((&crate::engine::mem::RawStr, &Field)) -> (&'a str, &'a Field),
+    >
     where
         Self: 'a;
 
@@ -292,9 +298,11 @@ impl FieldMapAny for IndexSTSeqCns<crate::engine::mem::RawStr, Field> {
     }
 }
 impl FieldMapAny for IndexSTSeqCns<BoxStr, Field> {
-    type Iterator<'a> = std::iter::Map<
-    crate::engine::idx::stdord_iter::IndexSTSeqDllIterOrdKV<'a, BoxStr, Field>,
-    fn((&BoxStr, &Field)) -> (&'a str, &'a Field)>
+    type Iterator<'a>
+        = std::iter::Map<
+        crate::engine::idx::stdord_iter::IndexSTSeqDllIterOrdKV<'a, BoxStr, Field>,
+        fn((&BoxStr, &Field)) -> (&'a str, &'a Field),
+    >
     where
         Self: 'a;
 
@@ -312,7 +320,10 @@ impl<FM: FieldMapAny> MapStorageSpec for FieldMapSpec<FM> {
     type InMemoryMap = FM;
     type InMemoryKey = str;
     type InMemoryVal = Field;
-    type InMemoryMapIter<'a> = FM::Iterator<'a> where FM: 'a;
+    type InMemoryMapIter<'a>
+        = FM::Iterator<'a>
+    where
+        FM: 'a;
     type RestoredKey = BoxStr;
     type RestoredVal = Field;
     type RestoredMap = IndexSTSeqCns<BoxStr, Field>;

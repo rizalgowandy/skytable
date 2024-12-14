@@ -24,8 +24,6 @@
  *
 */
 
-use std::ptr::addr_of;
-
 static mut SETUP: RunnerSetup = RunnerSetup {
     username: String::new(),
     password: String::new(),
@@ -83,7 +81,7 @@ impl RunnerSetup {
 }
 
 pub unsafe fn instance() -> &'static RunnerSetup {
-    &*addr_of!(SETUP)
+    &*(&raw const SETUP)
 }
 
 pub unsafe fn configure(
