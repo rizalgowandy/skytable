@@ -43,137 +43,241 @@
 //!     - `__MYENTITY__` - `String` with entity
 //!
 
-use {proc_macro::TokenStream, quote::quote, syn::Lit};
+use {
+    proc_macro::TokenStream,
+    proc_macro2::{Ident, TokenStream as TokenStream2},
+    quote::quote,
+    syn::{
+        parse_macro_input, AttributeArgs, Data, DataStruct, DeriveInput, Expr, Fields, ItemFn,
+        Meta, NestedMeta,
+    },
+};
 
-mod dbtest_fn;
-mod dbtest_mod;
+mod dbtest;
 mod util;
 
 #[proc_macro_attribute]
-/// The `dbtest_module` function accepts an inline module of `dbtest_func` compatible functions,
-/// unpacking each function into a dbtest
-pub fn dbtest_module(args: TokenStream, item: TokenStream) -> TokenStream {
-    dbtest_mod::parse_test_module(args, item)
+/// A `dbtest` is a test harness that provides an easy way to connect to a Skytable instance during a test with appropriate connection and graceful
+/// disconnection.
+///
+/// **This test only runs in _non-miri_ configurations**
+pub fn dbtest(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    dbtest::dbtest(attrs, item)
 }
 
-/// The `dbtest_func` macro starts an async server in the background and is meant for
-/// use within the `skyd` or `WORKSPACEROOT/server/` crate. If you use this compiler
-/// macro in any other crate, you'll simply get compilation errors
-///
-/// All tests will clean up all values once a single test is over
-///
-/// ## Arguments
-/// - `table -> str`: Custom table declaration
-/// - `port -> u16`: Custom port
-/// - `host -> str`: Custom host
-/// - `tls_cert -> str`: TLS cert (makes the connection a TLS one)
-/// - `username -> str`: Username for authn
-/// - `password -> str`: Password for authn
-/// - `auth_testuser -> bool`: Login as the test user
-/// - `auth_rootuser -> bool`: Login as the root user
-/// - `norun -> bool`: Don't execute anything on the connection
-///
-/// ## _Ghost_ values
-/// This macro gives:
-/// - `con`: a `skytable::AsyncConnection`
-/// - `query`: a mutable `skytable::Query`
-/// - `__MYENTITY__`: the entity set on launch
-/// - `__MYTABLE__`: the table set on launch
-/// - `__MYKS__`: the keyspace set on launch
-///
-/// ## Requirements
-///
-/// The `#[dbtest]` macro expects several things. The calling crate:
-/// - should have the `tokio` crate as a dependency and should have the
-/// `features` set to full
-/// - should have the `skytable` crate as a dependency and should have the `features` set to `async` and version
-/// upstreamed to `next` on skytable/client-rust
-///
-/// ## Collisions
-///
-/// The sample space for table name generation is so large (in the order of 4.3 to the 50) that collisions
-/// are practially impossible. Hence we do not bother with a global random string table and instead proceed
-/// to generate tables randomly at the point of invocation
-///
-#[proc_macro_attribute]
-pub fn dbtest_func(args: TokenStream, item: TokenStream) -> TokenStream {
-    dbtest_fn::dbtest_func(args, item)
+#[proc_macro_derive(Wrapper)]
+/// Implements necessary traits for some type `T` to make it identify as a different type but mimic the functionality
+/// as the inner type it wraps around
+pub fn derive_wrapper(t: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(t as DeriveInput);
+    let r = wrapper(item);
+    r.into()
 }
 
-#[proc_macro]
-/// Get a compile time respcode/respstring array. For example, if you pass: "Unknown action",
-/// it will return: `!14\nUnknown Action\n`
-pub fn compiled_eresp_array(tokens: TokenStream) -> TokenStream {
-    _get_eresp_array(tokens, false)
-}
-
-#[proc_macro]
-/// Get a compile time respcode/respstring array. For example, if you pass: "Unknown action",
-/// it will return: `!14\n14\nUnknown Action\n`
-pub fn compiled_eresp_array_v1(tokens: TokenStream) -> TokenStream {
-    _get_eresp_array(tokens, true)
-}
-
-fn _get_eresp_array(tokens: TokenStream, sizeline: bool) -> TokenStream {
-    let payload_str = match syn::parse_macro_input!(tokens as Lit) {
-        Lit::Str(st) => st.value(),
-        _ => panic!("Expected a string literal"),
+fn wrapper(item: DeriveInput) -> TokenStream2 {
+    let st_name = &item.ident;
+    let fields = match item.data {
+        Data::Struct(DataStruct {
+            fields: Fields::Unnamed(ref f),
+            ..
+        }) if f.unnamed.len() == 1 => f,
+        _ => panic!("only works on tuple structs with one field"),
     };
-    let mut processed = quote! {
-        b'!',
-    };
-    if sizeline {
-        let payload_len = payload_str.as_bytes().len();
-        let payload_len_str = payload_len.to_string();
-        let payload_len_bytes = payload_len_str.as_bytes();
-        for byte in payload_len_bytes {
-            processed = quote! {
-                #processed
-                #byte,
-            };
-        }
-        processed = quote! {
-            #processed
-            b'\n',
-        };
-    }
-    let payload_bytes = payload_str.as_bytes();
-    for byte in payload_bytes {
-        processed = quote! {
-            #processed
-            #byte,
-        }
-    }
-    processed = quote! {
-        #processed
-        b'\n',
-    };
-    processed = quote! {
-        [#processed]
-    };
-    processed.into()
-}
-
-#[proc_macro]
-/// Get a compile time respcode/respstring slice. For example, if you pass: "Unknown action",
-/// it will return: `!14\nUnknown Action\n`
-pub fn compiled_eresp_bytes(tokens: TokenStream) -> TokenStream {
-    let ret = compiled_eresp_array(tokens);
-    let ret = syn::parse_macro_input!(ret as syn::Expr);
+    let field = &fields.unnamed[0];
+    let ty = &field.ty;
+    let (impl_generics, ty_generics, where_clause) = item.generics.split_for_impl();
     quote! {
-        &#ret
+        #[automatically_derived]
+        impl #impl_generics #st_name #ty_generics #where_clause { pub fn into_inner(self) -> #ty { self.0 } }
+        #[automatically_derived]
+        impl #impl_generics ::core::ops::Deref for #st_name #ty_generics #where_clause {
+            type Target = #ty;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        #[automatically_derived]
+        impl #impl_generics ::core::ops::DerefMut for #st_name #ty_generics #where_clause {
+            fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
+        }
+        #[automatically_derived]
+        impl #impl_generics ::core::cmp::PartialEq<#ty> for #st_name #ty_generics #where_clause {
+            fn eq(&self, other: &#ty) -> bool { ::core::cmp::PartialEq::eq(&self.0, other) }
+        }
+        #[automatically_derived]
+        impl #impl_generics ::core::cmp::PartialEq<#st_name #ty_generics> for #ty #where_clause {
+            fn eq(&self, other: &#st_name #ty_generics) -> bool { ::core::cmp::PartialEq::eq(self, &other.0) }
+        }
+    }
+}
+
+#[proc_macro_derive(TaggedEnum)]
+pub fn derive_tagged_enum(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let (enum_name, _, value_expressions, variant_len, repr_type_ident, _) =
+        process_enum_tags(&ast);
+    quote! {
+        impl crate::util::compiler::TaggedEnum for #enum_name {
+            type Dscr = #repr_type_ident;
+            const MAX_DSCR: #repr_type_ident = {
+                let values = #value_expressions;
+                let mut i = 1;
+                let mut max = values[0];
+                while i < values.len() {
+                    if values[i] > max {
+                        max = values[i];
+                    }
+                    i = i + 1;
+                }
+                max
+            };
+            const VARIANT_COUNT: usize = #variant_len;
+            fn dscr(&self) -> #repr_type_ident {
+                unsafe {
+                    core::mem::transmute(*self)
+                }
+            }
+            fn dscr_u64(&self) -> u64 {
+                self.dscr() as u64
+            }
+            unsafe fn from_raw(d: #repr_type_ident) -> Self {
+                core::mem::transmute(d)
+            }
+        }
     }
     .into()
 }
 
-#[proc_macro]
-/// Get a compile time respcode/respstring slice. For example, if you pass: "Unknown action",
-/// it will return: `!14\nUnknown Action\n`
-pub fn compiled_eresp_bytes_v1(tokens: TokenStream) -> TokenStream {
-    let ret = compiled_eresp_array_v1(tokens);
-    let ret = syn::parse_macro_input!(ret as syn::Expr);
+#[proc_macro_derive(EnumMethods)]
+pub fn derive_value_methods(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let (enum_name, repr_type, _, variant_len, repr_type_ident, variants) = process_enum_tags(&ast);
+    let repr_type_ident_func = syn::Ident::new(
+        &format!("value_{repr_type}"),
+        proc_macro2::Span::call_site(),
+    );
+    let mut decls = quote! {};
+    for (variant, _) in variants {
+        decls = quote! {
+            #decls
+            #enum_name::#variant,
+        };
+    }
+    let variants_array = quote! { [#decls] };
+    let gen = quote! {
+        impl #enum_name {
+            pub const VARIANTS: [Self; #variant_len] = #variants_array;
+            pub const fn #repr_type_ident_func(&self) -> #repr_type_ident { unsafe { core::mem::transmute(*self) } }
+            pub const fn value_word(&self) -> usize { self.#repr_type_ident_func() as usize }
+            pub const fn value_qword(&self) -> u64 { self.#repr_type_ident_func() as u64 }
+        }
+    };
+    gen.into()
+}
+
+fn process_enum_tags(
+    ast: &DeriveInput,
+) -> (
+    &proc_macro2::Ident,
+    String,
+    TokenStream2,
+    usize,
+    proc_macro2::Ident,
+    Vec<(Ident, Expr)>,
+) {
+    let enum_name = &ast.ident;
+    let mut repr_type = None;
+    // Get repr attribute
+    for attr in &ast.attrs {
+        if attr.path.is_ident("repr") {
+            if let Meta::List(list) = attr.parse_meta().unwrap() {
+                if let Some(NestedMeta::Meta(Meta::Path(path))) = list.nested.first() {
+                    repr_type = Some(path.get_ident().unwrap().to_string());
+                }
+            }
+        }
+    }
+    let repr_type = repr_type.expect("Must have repr(u8) or repr(u16) etc.");
+    let mut variant_exprs = vec![];
+    // Ensure all variants have explicit discriminants
+    if let Data::Enum(data) = &ast.data {
+        for variant in &data.variants {
+            match &variant.fields {
+                Fields::Unit => {
+                    let (_, dscr_expr) = variant
+                        .discriminant
+                        .as_ref()
+                        .expect("All enum variants must have explicit discriminants");
+                    variant_exprs.push((variant.ident.clone(), dscr_expr.clone()));
+                }
+                _ => panic!("All enum variants must be unit variants"),
+            }
+        }
+    } else {
+        panic!("This derive macro only works on enums");
+    }
+    assert!(!variant_exprs.is_empty(), "must be a non-empty enumeration");
+    let val_exprs = variant_exprs.iter().map(|(_, vexp)| vexp);
+    let value_expressions = quote! {
+        [#(#val_exprs),*]
+    };
+    let variant_len = variant_exprs.len();
+    let repr_type_ident = syn::Ident::new(&repr_type, proc_macro2::Span::call_site());
+    (
+        enum_name,
+        repr_type,
+        value_expressions,
+        variant_len,
+        repr_type_ident,
+        variant_exprs,
+    )
+}
+
+#[proc_macro_attribute]
+/// Run this test when either:
+/// - Non-leaky-permissive miri harness is enabled
+/// - Only test mode is enabled
+pub fn miri_leaky_test(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let attr_args = parse_macro_input!(attrs as AttributeArgs);
+    assert!(attr_args.is_empty(), "no args allowed here");
+    let input_fn = parse_macro_input!(item as ItemFn);
     quote! {
-        &#ret
+        #[cfg(
+            any(
+                all(feature = "miri-leaks", miri),
+                all(not(miri), not(feature = "miri-leaks")),
+            )
+        )]
+        #[::core::prelude::v1::test]
+        #input_fn
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
+/// Run this test only when either:
+/// - Miri and strict leak policy harness is enabled
+/// - Only test mode is enabled
+pub fn test(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let attr_args = parse_macro_input!(attrs as AttributeArgs);
+    assert!(attr_args.is_empty(), "no args allowed here");
+    let input_fn = parse_macro_input!(item as ItemFn);
+    quote! {
+        #[cfg(not(feature = "miri-leaks"))]
+        #[::core::prelude::v1::test]
+        #input_fn
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
+/// Run this test in non-miri configs only
+pub fn non_miri_test(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let attr_args = parse_macro_input!(attrs as AttributeArgs);
+    assert!(attr_args.is_empty(), "no args allowed here");
+    let input_fn = parse_macro_input!(item as ItemFn);
+    quote! {
+        #[cfg(not(miri))]
+        #[::core::prelude::v1::test]
+        #input_fn
     }
     .into()
 }

@@ -34,7 +34,9 @@ In other cases, use the C style.
   use serde::{Serialize, Deserialize};
   use crate::something;
   ```
+
   this mode of styling is preferred:
+
   ```rust
   use {
       devtimer::{SimpleTimer, ComplexTimer},
@@ -47,32 +49,27 @@ In other cases, use the C style.
 
 The main parts (ignorning CI scripts, stress test suite, test harness and custom compiler macros) are:
 
-- `cli`: REPL shell
-- `server`: database server
+- `cli`: interactive shell `skysh`
+- `server`: server daemon `skyd`
 - `sky-bench`: benchmark tool
-- `sky-migrate`: migration tool
 
-### Jargon
-
-Each project has its own jargon — and so do we!
-
-- _actiondoc_ and _actions docs_ : This refers to the `actiondoc.yml` file, which is used by the Skytable documentation website for automatically building documentation for the actions
+The `pkg` folder contains scripts used to build packages for different targets. The `examples` folder
+contains example configuration files.
 
 ### Branches
 
 The `next` branch is the _kind of_ stable branch which contains the latest changes. However, for most purposes, you should always download sources from the tags.
 
-Pushes are made directly
-to next if they don't change things significantly; for example, changes in documentation comments and general optimizations. If
-however the changes are huge, then they must be created on a separate branch, a pull request opened, the CI suite run and
-finally merged into next.
+Pushes are made directly to next if they don't change things significantly; for example, changes in 
+documentation comments and general optimizations. If however the changes are huge, then they must be created 
+on a separate branch, a pull request opened, the CI suite run and finally merged into next.
 
 ## Pull request guidelines
 
 ### Typo correction or doc updates
 
-The creation of superflous merge requests is generally discouraged. Such examples include the creation of multiple
-PRs to correct single typos, update comments or update docs.
+The creation of superflous merge requests is generally discouraged. Such examples include the creation of 
+multiple PRs to correct single typos, update comments or update docs.
 
 It would be far better if you could fix a considerable subset (if not all) of these issues in one pull request (it's fine to create multiple commits in the same PR).
 This is because we don't want to utilize compute capacity or multiply our git history for changes
@@ -86,7 +83,7 @@ commit messages to avoid triggering the workflows.
 3. Sign the CLA (if you haven't signed it already)
 4. One of the maintainers will review your patch and suggest changes if required
 5. Once your patch is approved, it will be merged into the respective branch
-6. Done, you're now a contributor 🎉!
+6. Done, you're now a contributor. Thank you.
 
 ## Development environment setup
 
@@ -94,6 +91,9 @@ Skytable uses a Makefile for builds and running the test suite along with a numb
 
 1. Install the latest Rust toolchain (stable)
 2. Install a C Compiler, Make, Perl and the libssl-dev package on platforms where they are required
+3. On Windows:
+   - You might need to perform additional steps to add `perl` to our `PATH` variable
+   - You may also need to set up powershell if it isn't set up already as it is used by the test script
 
 **Building**
 
@@ -116,4 +116,4 @@ Testing is simple: just run this:
 make test
 ```
 
-> **NOTE**: Make sure ports 2003 and 2004 are not used by any applications. Also, make sure your _own instance_ isn't running on any of these ports; if that is the case, you might end up losing data due to conflicting entity names! The test suite creates a `testsuite` keyspace and some tables within it to run all the tests.
+> **NOTE**: Make sure port 2003 and 2004 are not used by any applications. Also, make sure your _own instance_ isn't running on any of these ports; if that is the case, you might end up losing data due to conflicting entity names! The test suite creates multiple spaces and some models within it to run all the tests.

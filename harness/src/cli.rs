@@ -47,6 +47,7 @@ pub enum HarnessWhat {
     Test,
     Bundle(BuildMode),
     LinuxPackage(LinuxPackageType),
+    Audit,
 }
 
 impl HarnessWhat {
@@ -54,6 +55,7 @@ impl HarnessWhat {
     const CLI_BUNDLE: &'static str = "bundle";
     const CLI_BUNDLE_DEBUG: &'static str = "bundle-dbg";
     const CLI_DEB: &'static str = "deb";
+    const CLI_AUDIT: &'static str = "audit";
     const CLI_ARG_HELP: &'static str = "--help";
     const CLI_ARG_HELP_SHORT: &'static str = "-h";
     /// Returns the target _harness mode_ from env
@@ -73,6 +75,7 @@ impl HarnessWhat {
             Self::CLI_BUNDLE_DEBUG => HarnessWhat::Bundle(BuildMode::Debug),
             Self::CLI_ARG_HELP_SHORT | Self::CLI_ARG_HELP => display_help(),
             Self::CLI_DEB => HarnessWhat::LinuxPackage(LinuxPackageType::Deb),
+            Self::CLI_AUDIT => HarnessWhat::Audit,
             unknown_arg => return Err(HarnessError::UnknownCommand(unknown_arg.to_string())),
         };
         Ok(ret)
@@ -82,6 +85,7 @@ impl HarnessWhat {
             HarnessWhat::Test => "test suite".to_owned(),
             HarnessWhat::Bundle(mode) => format!("{} bundle", mode.to_string()),
             HarnessWhat::LinuxPackage(pkg) => format!("Linux package {}", pkg.to_string()),
+            HarnessWhat::Audit => "audit".to_owned(),
         }
     }
 }

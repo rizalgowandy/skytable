@@ -27,8 +27,6 @@
 //! Dark compiler arts and hackery to defy the normal. Use at your own
 //! risk
 
-use core::mem;
-
 #[cold]
 #[inline(never)]
 pub const fn cold() {}
@@ -49,7 +47,13 @@ pub const fn unlikely(b: bool) -> bool {
 
 #[cold]
 #[inline(never)]
-pub const fn cold_err<T>(v: T) -> T {
+pub fn cold_call<U>(v: impl FnOnce() -> U) -> U {
+    v()
+}
+
+#[cold]
+#[inline(never)]
+pub const fn cold_val<T>(v: T) -> T {
     v
 }
 #[inline(always)]
@@ -61,14 +65,31 @@ pub const fn hot<T>(v: T) -> T {
     v
 }
 
-/// # Safety
-/// The caller is responsible for ensuring lifetime validity
-pub const unsafe fn extend_lifetime<'a, 'b, T>(inp: &'a T) -> &'b T {
-    mem::transmute(inp)
+#[cold]
+#[inline(never)]
+pub fn cold_rerr<T, E>(e: E) -> Result<T, E> {
+    Err(e)
 }
 
-/// # Safety
-/// The caller is responsible for ensuring lifetime validity
-pub unsafe fn extend_lifetime_mut<'a, 'b, T>(inp: &'a mut T) -> &'b mut T {
-    mem::transmute(inp)
+/*
+    pure enumerations
+*/
+
+pub trait TaggedEnum: Sized {
+    type Dscr: PartialOrd;
+    const MAX_DSCR: Self::Dscr;
+    const VARIANT_COUNT: usize;
+    fn dscr(&self) -> Self::Dscr;
+    fn dscr_u64(&self) -> u64;
+    unsafe fn from_raw(d: Self::Dscr) -> Self;
+    fn try_from_raw(d: Self::Dscr) -> Option<Self> {
+        if d > Self::MAX_DSCR {
+            None
+        } else {
+            Some(unsafe {
+                // UNSAFE(@ohsayan): just verified the dscr
+                <Self as TaggedEnum>::from_raw(d)
+            })
+        }
+    }
 }

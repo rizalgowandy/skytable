@@ -2,23 +2,213 @@
 
 All changes in this project will be noted in this file.
 
-## Unreleased
+## Version 0.8.4
 
 ### Additions
 
+- Server:
+  - Added `TRUNCATE MODEL` query (and no, I still have no idea why this wasn't present in the first place. There are some things in the universe that no one knows the answer to. This is one of those things.)
+    > Also note: `TRUNCATE MODEL` is root only right now.
+  - Simple lists can now be defined using simple list syntax
+    - For example, instead of `create model spc.mdl(uid: username, notes: list { type: string })` you will now be able to simply use `create model mymodel(uid: username, notes: [string])` instead.
+    - Similarly, instead of `alter model spc.mdl add notes { type: list { type: string } }` you can use `alter model spc.mdl add notes { type: [string] }`
+
+### Fixes
+
+- Server:
+  - Improved diagnostic messages (and output formatting)
+  - Fixed memory leaks across multiple routines (oarticularly startup routines)
+  - Fixed potential segfaults (note: these are *potential segfaults* as we were not able to actually reproduce it anywhere despite heavy permutation
+  testing, but the fixes were made out of an abundance of caution)
+- CLI:
+  - Upgraded client driver to fix loading of large blob/string fetches from the database
+
+## Version 0.8.3
+
+### Additions
+
+- Server:
+  - Added the `backup` subcommand to create unattended manifest-based backups
+  - Added the `restore` subcommand to enable unattended restore for manifest-based backups
+- Benchmark tool:
+  - Supports *full spectrum latency analysis* and offers advanced insight into executed queries:
+    - Latency distributions
+    - Mean/Min/Max/Stdev statistics
+    - Details about executed workload and its tasks with clear descriptions of what was executed
+  - Switch to using `workload` based benchmarks
+
+### Fixes
+
+- Server:
+  - Fixed error messages
+  - Fixed a bug where an empty GNS won't detect a missing data directory which could cause issues with DDL transactions
+- Benchmark tool:
+  - Running a SIGINT now gracefully terminates the workload
+
+## Version 0.8.2
+
+### Additions
+
+- Server:
+  - Skyhash/2: Restored support for pipelines
+  - Enable online (runtime) recovery of transactional failures due to disk errors
+  - Added BlueQL shorthands:
+    - `INSERT`: `INS`
+    - `SELECT`: `SEL`
+    - `UPDATE`: `UPD`
+    - `DELETE`: `DEL`
+  - Added new `UPSERT` (shorthand: `UPS`) query
+  - Auto-compaction of journal(s) on boot
+  - Allow manual compaction with `skyd compact` subcommand
+- CLI:
+  - Enable setting custom history file location using the `SKYSH_HISTORY_FILE` environment variable
+  - Correctly format rows as CSV when using `--eval`
+
+### Fixes
+
+- Server:
+  - Fixed an issue where an incorrect handshake with multiple errors caused the client connection
+    to be terminated without yielding an error
+  - Fixed SE bug that resulted in unsafe cleanup of journals when multiple failures occur in sequence
+  - Fixed SE memory management bug in delta diff algorithm: In rare cases, a crash might occur on startup (*only during startup* and *not* at runtime)
+  - Fixed DCL command `sysctl alter user` not working properly (preventing change of any data)
+- CLI:
+  - Fixed transient history file location. History is now always saved to $HOME/.sky_history
+  - Fixed an issue where queries were not correctly parameterized when using `--eval`
+
+### Platform notes
+
+- 32-bit Windows (MSVC) has been downgraded to a Tier-2 platform and will likely be deprecated in the future
+- Linux ARM64 is now a Tier-1 platform
+- macOS ARM64 is a now a Tier-1X platform
+
+## Version 0.8.1
+
+### Additions
+
+- Added support for manual repair with the `skyd repair` command
+
+### Fixes
+
+- **Server**:
+  - Fixed migration from v1 SE (released with v0.8.0-beta) to v2 SE (released in v0.8.0)
+  - Fixed health reporting
+  - Fixed a connection crash (not a server-wide crash) at the pre-connection stage when authentication data
+    was sent incorrectly
+- **CLI**:
+  - Fixed `--eval` output. All server errors are now correctly written to `stderr`
+  - Guard against empty passwords
+
+## Version 0.8.0
+
+> This is the first release of Skytable Octave, and it changes the query API entirely making all previous versions incompatible
+> excluding the data files which are automatically upgraded per our backwards compatibility guarantees
+
+### Additions
+
+#### BlueQL query language
+
+- DDL:
+  - `space`s are the equivalent of the `keyspace` from previous versions
+  - `model`s are the equivalent of `table`s from previous version
+  - The following queries were added:
+    - `CREATE SPACE [IF NOT EXISTS] ...`
+    - `CREATE MODEL [IF NOT EXISTS] ...`
+      - Nested lists are now supported
+      - Type definitions are now supported
+      - Multiple fields are now supported
+    - `ALTER SPACE ...`
+    - `ALTER MODEL ...`
+    - `DROP SPACE [IF EXISTS] ...`
+    - `DROP MODEL [IF EXISTS] ...`
+    - `USE <space>`:
+      - works just like SQL
+      - **does not work with DDL queries**: the reason it works in this way is to prevent accidental deletes
+    - `INSPECT ...`:
+      - `INSPECT global`: can be used to inspect the global state, seeing all spaces currently present on the system, users and other information. Some information is limited to the root account only (as JSON)
+      - `INSPECT space <space>`: can be used to inspect a single space, returning a list of models and relevant information (as JSON)
+      - `INSPECT model <model>`: can be used to inspect a single model, returning declaration and relevant information (as JSON)
+- DML:
+  - **All actions removed**: All the prior `SET`, `GET` and other actions have been removed in favor of the new query language
+  - The following queries were added:
+    - `INSERT INTO <space>.<model>(col, col2, col3, ...)`
+      - Insert queries can use several ways of insertion including:
+        - a standard order of declared columns like this:
+
+          ```sql
+          INSERT INTO myspace.mymodel(col1, col2, col3, ...)
+          ```
+
+        - using a map:
+
+          ```sql
+          INSERT INTO myspace.mymodel { col1: val1, col2: val2, col4: val4, col3: val3 }
+          ```
+
+      - Inserts can also make use of function calls during inserts:
+        - It can be called like this: `INSERT INTO myspace.mymodel(@uuidstr, ...)`
+        - The following functions are available:
+          - `@uuidstr`: returns a string with a randomly generated v4 UUID
+          - `@uuidbin`: same as `@uuidstr` but returns it as a blob
+          - `@timesec`: returns a 64-bit integer with the current time in seconds
+    - `SELECT [ALL] field1, field2, ... FROM <space>.<model> WHERE <primary_key_column> = <value> [LIMIT n]`
+    - New data manipulation via `UPDATE` allows arithmetic operations, string manipulation and more! Examples:
+      - `UPDATE <space>.<model> SET col_num += 1 WHERE <primary_key_column> = <value>`
+      - `UPDATE <space>.<model> SET mystring += " last part of string" WHERE ...`
+    - `DELETE FROM <space>.<model> WHERE <primary_key_column> = <value>`
+- DCL:
+  - `SYSCTL CREATE USER <name> WITH { password: <password> }`
+  - `SYSCTL ALTER USER <name> WITH { password: <new password> }`
+  - `SYSCTL DROP USER <name>`
+
+#### Fractal engine
+
+- The fractal engine is the start of the development of advanced internal state management in Skytable
+- Effectively balances performance and reliability tasks
+
+#### Skyhash 2 protocol
+
+- The `Skyhash-2` protocol now uses a multi-stage connection sequence for improved security and performance
+- Seamless auth
+- More types
+- Fewer retransmissions
+
+#### Storage engines
+
+- **New `deltax` storage engine for data**:
+  - The `deltax` storage engine monitors the database for changes and only records the changes in an append only file
+  - The interval can be adjusted per requirements of reliability
+  - Faster and hugely more reliable than the previous engine
+- **New DDL ACID transactions with with the `logx` engine**:
+  - DDL queries are now fully transactional which means that if they are executed, you can be sure that they were complete and synced to disk
+  - This largely improves reliability
+
+#### New shell
+
+- The new client shell easily authenticates based on the Skyhash-2 protocol
+- More reliable
+
+#### Benchmark tool
+
+- New benchmark engines to enable more efficient and real-world load testing
+- New benchmark engines use far lesser memory
+- New engines can handle midway benchmark crashes
+
+### Breaking changes
+
 - `skyd`:
-  - New protocol: Skyhash 2.0
-    - Reduced bandwidth usage (as much as 50%)
-    - Even simpler client implementations
-  - Backward compatibility with Skyhash 1.0:
-    - Simply set the protocol version you want to use in the config file, env vars or pass it as a CLI
-      argument
-    - Even faster implementation, even for Skyhash 1.0
-  - New query language: BlueQL
-    - `create keyspace` is now `create space`
-    - `create table` is now `create model`
-    - Similary, all `inspect` queries have been changed
-    - Entities are now of the form `space.model` instead of `ks:tbl`
+  - **The entire query API has changed as actions have been removed**
+  - **Spaces and models**: replace keyspaces and models respectively
+  - **Configuration**:
+    - The configuration system now uses YAML instead of TOML for better readability
+    - The configuration options have changed across CLI, ENV and the config file
+    - Authentication **must be enabled** irrespective of `dev`/`prod` mode
+- `sky-bench`:
+  - New benchmark engines are completely different from the previous engines (see above)
+  - Configuration options have changed because of how the new Skytable engine works
+- `skysh`:
+  - Configuration options have changed because of how the new Skytable engine works
+- `sky-migrate`: **This tool is deprecated and has been removed**. The Skytable engine will now automatically manage data upgrades. (please see [this issue](https://github.com/skytable/skytable/issues/320) for discussion on the same)
 
 ## Version 0.7.6
 
@@ -177,96 +367,126 @@ All changes in this project will be noted in this file.
 - **Multiple keyspaces**:
   - Keyspaces hold multiple tables and determine the replication strategy
   - Keyspaces can be created with:
+
     ```sql
     CREATE KEYSPACE <name>
     ```
+
   - The `system` keyspace is reserved for the system while the `default` keyspace is
     the one available by default. The `system` or `default` keyspace cannot be removed
   - Keyspaces can be deleted with:
+
     ```sql
     DROP KEYSPACE <name>
     ```
+
   - If a keyspace still has tables, it cannot be dropped by using `DROP KEYSPACE <name>`, instead
     one needs to use `DROP KEYSPACE <name> force` to force drop the keyspace
 - **Multiple tables**:
   - Tables hold the actual data. When you connect to the server, you are connected to the `default`
     table in the `default` keyspace. This table is non-removable
   - Tables can be created with:
+
     ```sql
     CREATE TABLE <entity> <model>(modelargs) <properties>
     ```
+
   - Tables can be dropped with:
+
     ```sql
     DROP TABLE <entity>
     ```
-- **Entity groups**: While using DDL queries and inspection queries, we can use the _Fully Qualified Entity_ (FQE) syntax instead of the table name. For example, to `inspect` the `cyan` table in keyspace `supercyan`, one can simply run:
+
+- **Entity groups**: While using DDL queries and inspection queries, we can use the *Fully Qualified Entity* (FQE) syntax instead of the table name. For example, to `inspect` the `cyan` table in keyspace `supercyan`, one can simply run:
+
   ```sql
   INSPECT TABLE supercyan:cyan
   ```
+
   The syntax is:
+
   ```sql
   keyspace:table
   ```
+
   **Note**: Both keyspaces and tables are entities. The names of entities must:
   - Begin with an underscore (\_) or an ASCII alphabet
   - Not begin with a number (0-9)
   - Must have lesser than 64 characters
 - **Keymap data model**:
   - To create a keymap table, run:
+
     ```sql
     CREATE TABLE <entity> keymap(<type>,<type>)
     ```
+
   - The following types were introduced:
     - `str`: A valid unicode string
     - `binstr`: A binary string
 - **Volatile table property**:
 
   - To create a volatile table, irrespective of the data model, run:
+
     ```sql
     CREATE TABLE <entity> <model>(modelargs) volatile
     ```
+
   - Volatile tables always exist, but the data in them does not persist between restarts. This makes them extremely useful for caches
 
 - **Inspection**:
   - Keyspaces can be inspected with:
+
     ```sql
     INSPECT KEYSPACE <name>
     ```
+
     This will list all the tables in the keyspace
   - Tables can be inspected with:
+
     ```sql
     INSPECT TABLE <entity>
     ```
+
     This will give information about the data model and other properties of the table
   - To list all keyspaces, this can be run:
+
     ```sql
     INSPECT KEYSPACES
     ```
+
 - **Cyanstore 1A disk storage format**: Cyanstore (v1A) was a new storage format built for the multi-keyspace-table world. It efficiently stores and retrieves records, tables and keyspaces
 - **Realtime keyspace/table switch**
   - To switch to a new keyspace in real-time, one needs to run:
+
     ```sql
     USE keyspace
     ```
+
   - To switch to a new table in real-time, one needs to run:
+
     ```sql
     USE keyspace:table
     ```
+
 - **Entity respecting actions**:
 
   - **`FLUSHDB`**: To flush all the data in a specific table, run:
+
     ```sql
     FLUSHDB <entity>
     ```
+
   - **`DBSIZE`**: To see the number of entries in a specific table, run:
+
     ```sql
     DBSIZE <entity>
     ```
+
   - **`LSKEYS`**:
     - `LSKEYS` will return keys from the current table
-    - `LSKEYS <count>` will return _count_ keys from the current table
+    - `LSKEYS <count>` will return *count* keys from the current table
     - `LSKEYS <entity>` will return keys from the given table
-    - `LSKEYS <entity> <count>` will return _count_ keys from the given table
+    - `LSKEYS <entity> <count>` will return *count* keys from the given table
 
 - **Snapshot isolation for strong actions**: This makes strong actions
   extremely reliable when compared to the earlier releases
@@ -416,7 +636,7 @@ Fix persistence (see [#150](https://github.com/skytable/skytable/issues/150))
 
 - Command line configuration added to `tdb`
 - ⚠ Positional arguments in `tsh` and `tdb-bench` have been removed
-- `MKSNAP` now has an _enhanced version_ which enables snapshots to be created even if they're disabled on the server side
+- `MKSNAP` now has an *enhanced version* which enables snapshots to be created even if they're disabled on the server side
 - If `BGSAVE` fails, no more writes will be accepted on the server side. All commands that try to modify data will return an internal server error
 - `tdb-bench` now provides JSON output with the `--json` flag
 - The `Dockerfile` was fixed to use command line arguments instead of the configuration file which caused problems

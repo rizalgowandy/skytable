@@ -31,25 +31,12 @@
 //!
 //! This contains modules which are shared by both the `cli` and the `server` modules
 
-use std::error::Error;
-/// A generic result
-pub type TResult<T> = Result<T, Box<dyn Error>>;
-/// The size of the read buffer in bytes
-pub const BUF_CAP: usize = 8 * 1024; // 8 KB per-connection
-/// The current version
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-/// The URL
-pub const URL: &str = "https://github.com/skytable/skytable";
+pub mod build_scripts;
+pub mod cli_utils;
+pub mod utils;
+pub mod variables;
 
-#[macro_export]
-/// Don't use unwrap_or but use this macro as the optimizer fails to optimize away usages
-/// of unwrap_or and creates a lot of LLVM IR bloat. use
-// FIXME(@ohsayan): Fix this when https://github.com/rust-lang/rust/issues/68667 is addressed
-macro_rules! option_unwrap_or {
-    ($try:expr, $fallback:expr) => {
-        match $try {
-            Some(t) => t,
-            None => $fallback,
-        }
-    };
+/// Returns a formatted version message `{binary} vx.y.z`
+pub fn version_msg(binary: &str) -> String {
+    format!("{binary} v{}", variables::VERSION)
 }

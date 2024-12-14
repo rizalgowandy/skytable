@@ -24,9 +24,6 @@
  *
 */
 
-#![deny(unused_crate_dependencies)]
-#![deny(unused_imports)]
-#![deny(unused_must_use)]
 #![cfg_attr(feature = "nightly", feature(test))]
 
 //! # Skytable
@@ -35,47 +32,20 @@
 //! is the most important part of the project. There are several modules within this crate; see
 //! the modules for their respective documentation.
 
-use {
-    crate::{config::ConfigurationSet, diskstore::flock::FileLock, util::exit_error},
-    env_logger::Builder,
-    libsky::{URL, VERSION},
-    std::{env, process},
-};
+use {env_logger::Builder, std::env};
 
 #[macro_use]
+extern crate log;
+#[macro_use]
 pub mod util;
-mod actions;
-mod admin;
-mod arbiter;
-mod auth;
-mod blueql;
-mod config;
-mod corestore;
-mod dbnet;
-mod diskstore;
-mod kvengine;
-mod protocol;
-mod queryengine;
-pub mod registry;
-mod services;
-mod storage;
-#[cfg(test)]
-mod tests;
+mod engine;
 
-const PID_FILE_PATH: &str = ".sky_pid";
-
-#[cfg(test)]
-const ROOT_DIR: &str = env!("ROOT_DIR");
-#[cfg(test)]
-const TEST_AUTH_ORIGIN_KEY: &str = env!("TEST_ORIGIN_KEY");
-
-#[cfg(all(not(target_env = "msvc"), not(miri)))]
-use jemallocator::Jemalloc;
+use libsky::variables::{URL, VERSION};
 
 #[cfg(all(not(target_env = "msvc"), not(miri)))]
 #[global_allocator]
 /// Jemallocator - this is the default memory allocator for platforms other than msvc
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 /// The terminal art for `!noart` configurations
 const TEXT: &str = "
@@ -87,89 +57,129 @@ const TEXT: &str = "
 ";
 
 type IoResult<T> = std::io::Result<T>;
+const SKY_PID_FILE: &str = ".sky_pid";
 
 fn main() {
+    use crate::engine::config::ConfigReturn;
     Builder::new()
         .parse_filters(&env::var("SKY_LOG").unwrap_or_else(|_| "info".to_owned()))
         .init();
-    // Start the server which asynchronously waits for a CTRL+C signal
-    // which will safely shut down the server
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .thread_name("server")
-        .enable_all()
-        .build()
-        .unwrap();
-    let (cfg, restore_file) = check_args_and_get_cfg();
-    // check if any other process is using the data directory and lock it if not (else error)
-    // important: create the pid_file just here and nowhere else because check_args can also
-    // involve passing --help or wrong arguments which can falsely create a PID file
-    let pid_file = run_pre_startup_tasks();
-    let db = runtime.block_on(async move { arbiter::run(cfg, restore_file).await });
-    // Make sure all background workers terminate
-    drop(runtime);
-    let db = match db {
-        Ok(d) => d,
-        Err(e) => {
-            // uh oh, something happened while starting up
-            log::error!("{}", e);
-            services::pre_shutdown_cleanup(pid_file, None);
-            process::exit(1);
-        }
+    let config = match engine::config::check_configuration() {
+        Ok(cfg) => match cfg {
+            ConfigReturn::Config(cfg) => cfg,
+            ConfigReturn::HelpMessage(msg) => {
+                exit!(eprintln!("{msg}"), 0x00)
+            }
+            ConfigReturn::Repair => return self::exec_subcommand("repair", engine::repair, false),
+            ConfigReturn::Compact => {
+                return self::exec_subcommand("compact", engine::compact, false)
+            }
+            ConfigReturn::Backup(bkp) => {
+                return self::exec_subcommand("backup", move || engine::backup(bkp), true)
+            }
+            ConfigReturn::Restore(restore) => {
+                return self::exec_subcommand("restore", move || engine::restore(restore), true)
+            }
+        },
+        Err(e) => exit_fatal!(error!("{e}")),
     };
-    log::info!("Stopped accepting incoming connections");
-    arbiter::finalize_shutdown(db, pid_file);
-    {
-        // remove this file in debug builds for harness to pick it up
-        #[cfg(debug_assertions)]
-        std::fs::remove_file(PID_FILE_PATH).unwrap();
+    self::entrypoint(config)
+}
+
+fn init() -> engine::RuntimeResult<(util::os::FileLock, tokio::runtime::Runtime)> {
+    let f_rt_start = || {
+        engine::set_context_init("locking PID file");
+        let pid_file = util::os::FileLock::new(SKY_PID_FILE)?;
+        engine::set_context_init("initializing runtime");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .thread_name("server")
+            .enable_all()
+            .build()?;
+        Ok((pid_file, runtime))
+    };
+    f_rt_start()
+}
+
+fn exit(
+    global: Option<engine::Global>,
+    pid_file: Option<util::os::FileLock>,
+    result: engine::RuntimeResult<()>,
+) {
+    if let Some(g) = global {
+        info!("cleaning up data");
+        engine::finish(g);
+    }
+    if let Some(_) = pid_file {
+        if let Err(e) = std::fs::remove_file(SKY_PID_FILE) {
+            error!("failed to remove PID file: {e}");
+        }
+    }
+    match result {
+        Ok(()) => info!("exited. goodbye!"),
+        Err(e) => exit_fatal!(error!("{e}")),
     }
 }
 
-/// This function checks the command line arguments and either returns a config object
-/// or prints an error to `stderr` and terminates the server
-fn check_args_and_get_cfg() -> (ConfigurationSet, Option<String>) {
-    match config::get_config() {
-        Ok(cfg) => {
-            if cfg.is_artful() {
-                log::info!("Skytable v{} | {}\n{}", VERSION, URL, TEXT);
-            } else {
-                log::info!("Skytable v{} | {}", VERSION, URL);
-            }
-            if cfg.is_custom() {
-                log::info!("Using settings from supplied configuration");
-            } else {
-                log::warn!("No configuration file supplied. Using default settings");
-            }
-            // print warnings if any
-            cfg.print_warnings();
-            cfg.finish()
-        }
-        Err(e) => {
-            log::error!("{}", e);
-            crate::exit_error();
-        }
-    }
+fn entrypoint(config: engine::config::Configuration) {
+    println!("{TEXT}\nSkytable v{VERSION} | {URL}\n");
+    let run = || {
+        let (pid_file, runtime) = match init() {
+            Ok(pr) => pr,
+            Err(e) => return (None, None, Err(e)),
+        };
+        let f_glob_init = runtime.block_on(async move {
+            engine::set_context_init("binding system signals");
+            let signal = util::os::TerminationSignal::init()?;
+            let (config, global) = tokio::task::spawn_blocking(|| engine::load_all(config))
+                .await
+                .unwrap()?;
+            engine::RuntimeResult::Ok((signal, config, global))
+        });
+        let (signal, config, global) = match f_glob_init {
+            Ok((sig, cfg, g)) => (sig, cfg, g),
+            Err(e) => return (Some(pid_file), None, Err(e)),
+        };
+        let g = global.global.clone();
+        let result_start =
+            runtime.block_on(async move { engine::start(signal, config, global).await });
+        (Some(pid_file), Some(g), result_start)
+    };
+    let (pid_file, global, result) = run();
+    self::exit(global, pid_file, result);
 }
 
-/// On startup, we attempt to check if a `.sky_pid` file exists. If it does, then
-/// this file will contain the kernel/operating system assigned process ID of the
-/// skyd process. We will attempt to read that and log an error complaining that
-/// the directory is in active use by another process. If the file doesn't then
-/// we're free to create our own file and write our own PID to it. Any subsequent
-/// processes will detect this and this helps us prevent two processes from writing
-/// to the same directory which can cause potentially undefined behavior.
-///
-fn run_pre_startup_tasks() -> FileLock {
-    let mut file = match FileLock::lock(PID_FILE_PATH) {
-        Ok(fle) => fle,
-        Err(e) => {
-            log::error!("Startup failure: Failed to lock pid file: {}", e);
-            crate::exit_error();
-        }
-    };
-    if let Err(e) = file.write(process::id().to_string().as_bytes()) {
-        log::error!("Startup failure: Failed to write to pid file: {}", e);
-        crate::exit_error();
+fn exec_subcommand(
+    task: &str,
+    f: impl FnOnce() -> engine::RuntimeResult<()> + Send + Sync + 'static,
+    custom_pid_handling: bool,
+) {
+    let rt;
+    let pid_file;
+    if custom_pid_handling {
+        engine::set_context_init("initializing runtime");
+        rt = match tokio::runtime::Builder::new_multi_thread()
+            .thread_name("server")
+            .enable_all()
+            .build()
+        {
+            Ok(rt_) => rt_,
+            Err(e) => exit_fatal!(error!("failed to start {task} task due to rt failure: {e}")),
+        };
+        pid_file = None;
+    } else {
+        let (pid_file_, rt_) = match init() {
+            Ok(init) => init,
+            Err(e) => exit_fatal!(error!("failed to start {task} task: {e}")),
+        };
+        pid_file = Some(pid_file_);
+        rt = rt_;
     }
-    file
+    let result = rt.block_on(async move {
+        engine::set_context_init("binding system signals");
+        let signal = util::os::TerminationSignal::init()?;
+        let result = tokio::task::spawn_blocking(f).await.unwrap();
+        drop(signal);
+        result
+    });
+    self::exit(None, pid_file, result)
 }

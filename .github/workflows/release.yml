@@ -15,13 +15,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        rust:
-          [
-            x86_64-unknown-linux-gnu,
-            x86_64-unknown-linux-musl,
-            x86_64-apple-darwin,
-            x86_64-pc-windows-msvc,
-          ]
         include:
           - rust: x86_64-unknown-linux-gnu
             os: ubuntu-latest
@@ -35,6 +28,12 @@ jobs:
           - rust: x86_64-pc-windows-msvc
             os: windows-latest
             artifact: x86_64-windows
+          - rust: aarch64-unknown-linux-gnu
+            os: [self-hosted, ARM64]
+            artifact: arm64-linux-gnu
+          - rust: aarch64-apple-darwin
+            os: macos-14
+            artifact: arm64-macos
     env:
       RUST_BACKTRACE: 1
       TARGET: ${{ matrix.rust }}
@@ -48,12 +47,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ./target
-          key: ${{ matrix.rust }}-rscache-${{ hashFiles('Cargo.lock') }}
+          key: ${{ matrix.rust }}-cargocache-${{ hashFiles('Cargo.lock') }}
 
-      - name: Install Rust
-        run: |
-          rustup default stable
-          rustup target add ${{ matrix.rust }}
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install MUSL tools
         run: sudo apt update && sudo apt install musl-tools -y
@@ -101,14 +97,16 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ./target
-          key: ${{ matrix.rust }}-rscache-${{ hashFiles('Cargo.lock') }}
+          key: ${{ matrix.rust }}-cargocache-${{ hashFiles('Cargo.lock') }}
 
       - name: Install 32-bit tools (Linux)
         run: sudo apt update && sudo apt install gcc-multilib -y
         if: runner.os == 'Linux'
 
       - name: Install Rust
-        run: rustup target add ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust }}
 
       - name: Make bundle
         run: make bundle
@@ -134,13 +132,18 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Download all artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4.1.7
         with:
           path: artifacts
-      - name: Upload release binaries
+      - name: Install GitHub CLI
+        run: |
+          sudo apt update
+          sudo apt install gh -y
+      - name: Upload release assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
           TAG_NAME: ${{ env.VERSION }}
         run: |
-          hub release edit $(find . -type f -name "*.zip" -printf "-a %p ") -m "" "$TAG_NAME"
-          hub release edit $(find . -type f -name "*.deb" -printf "-a %p ") -m "" "$TAG_NAME"
+          for file in artifacts/packages/*; do
+            gh release upload "$TAG_NAME" "$file"
+          done

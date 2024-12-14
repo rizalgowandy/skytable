@@ -26,9 +26,17 @@
 
 #[macro_export]
 macro_rules! impossible {
-    () => {
-        core::hint::unreachable_unchecked()
-    };
+    () => {{
+        if cfg!(debug_assertions) {
+            panic!(
+                "reached unreachable case at: {}:{}",
+                ::core::file!(),
+                ::core::line!()
+            );
+        } else {
+            ::core::hint::unreachable_unchecked()
+        }
+    }};
 }
 
 #[macro_export]
@@ -70,16 +78,43 @@ macro_rules! cfg_test {
 
 #[macro_export]
 /// Compare two vectors irrespective of their elements' position
-macro_rules! veceq {
+macro_rules! veceq_transposed {
     ($v1:expr, $v2:expr) => {
         $v1.len() == $v2.len() && $v1.iter().all(|v| $v2.contains(v))
     };
 }
 
 #[macro_export]
-macro_rules! assert_veceq {
+macro_rules! assert_veceq_transposed {
+    ($v1:expr, $v2:expr) => {{
+        if !veceq_transposed!($v1, $v2) {
+            panic!(
+                "failed to assert transposed veceq. v1: `{:#?}`, v2: `{:#?}`",
+                $v1, $v2
+            )
+        }
+    }};
+}
+
+#[cfg(test)]
+macro_rules! vecstreq_exact {
     ($v1:expr, $v2:expr) => {
-        assert!(veceq!($v1, $v2))
+        $v1.iter()
+            .zip($v2.iter())
+            .all(|(a, b)| a.as_bytes() == b.as_bytes())
+    };
+}
+
+#[cfg(test)]
+macro_rules! assert_vecstreq_exact {
+    ($v1:expr, $v2:expr) => {
+        if !vecstreq_exact!($v1, $v2) {
+            ::core::panic!(
+                "failed to assert vector data equality. lhs: {:?}, rhs: {:?}",
+                $v1,
+                $v2
+            );
+        }
     };
 }
 
@@ -94,81 +129,6 @@ macro_rules! hmeq {
 macro_rules! assert_hmeq {
     ($h1:expr, $h2: expr) => {
         assert!(hmeq!($h1, $h2))
-    };
-}
-
-#[macro_export]
-/// ## The action macro
-///
-/// A macro for adding all the _fuss_ to an action. Implementing actions should be simple
-/// and should not require us to repeatedly specify generic paramters and/or trait bounds.
-/// This is exactly what this macro does: does all the _magic_ behind the scenes for you,
-/// including adding generic parameters, handling docs (if any), adding the correct
-/// trait bounds and finally making your function async. Rest knowing that all your
-/// action requirements have been happily addressed with this macro and that you don't have
-/// to write a lot of code to do the exact same thing
-///
-///
-/// ## Limitations
-///
-/// This macro can only handle mutable parameters for a fixed number of arguments (three)
-///
-macro_rules! action {
-    (
-        $($(#[$attr:meta])*
-        fn $fname:ident($($argname:ident: $argty:ty),* $(,)?)
-        $block:block)*
-    ) => {
-            $($(#[$attr])*
-            pub async fn $fname<
-                'a,
-                C: 'a + $crate::dbnet::BufferedSocketStream,
-                P: $crate::protocol::interface::ProtocolSpec,
-            > (
-                $($argname: $argty,)*
-            ) -> $crate::actions::ActionResult<()>
-            $block)*
-    };
-    (
-        $($(#[$attr:meta])*
-        fn $fname:ident(
-            $argone:ident: $argonety:ty,
-            $argtwo:ident: $argtwoty:ty,
-            mut $argthree:ident: $argthreety:ty $(,)?
-        ) $block:block)*
-    ) => {
-            $($(#[$attr])*
-            pub async fn $fname<
-            'a,
-                C: 'a + $crate::dbnet::BufferedSocketStream,
-                P: $crate::protocol::interface::ProtocolSpec,
-            >(
-                $argone: $argonety,
-                $argtwo: $argtwoty,
-                mut $argthree: $argthreety
-            ) -> $crate::actions::ActionResult<()>
-            $block)*
-    };
-    (
-        $($(#[$attr:meta])*
-        fn $fname:ident(
-            $argone:ident: $argonety:ty,
-            $argtwo:ident: $argtwoty:ty,
-            $argthree:ident: $argthreety:ty
-        ) $block:block)*
-    ) => {
-            $($(#[$attr])*
-            pub async fn $fname<
-                'a,
-                T: 'a + $crate::dbnet::connection::ClientConnection<P, Strm>,
-                Strm: $crate::dbnet::connection::Stream,
-                P: $crate::protocol::interface::ProtocolSpec
-            >(
-                $argone: $argonety,
-                $argtwo: $argtwoty,
-                $argthree: $argthreety
-            ) -> $crate::actions::ActionResult<()>
-            $block)*
     };
 }
 
@@ -190,38 +150,6 @@ macro_rules! do_sleep {
     ($dur:literal s) => {{
         std::thread::sleep(std::time::Duration::from_secs($dur));
     }};
-}
-
-#[cfg(test)]
-macro_rules! tmut_bool {
-    ($e:expr) => {{
-        *(&$e as *const _ as *const bool)
-    }};
-    ($a:expr, $b:expr) => {
-        (tmut_bool!($a), tmut_bool!($b))
-    };
-}
-
-macro_rules! ucidx {
-    ($base:expr, $idx:expr) => {
-        *($base.as_ptr().add($idx as usize))
-    };
-}
-
-/// If you provide: [T; N] with M initialized elements, then you are given
-/// [MaybeUninit<T>; N] with M initialized elements and N-M uninit elements
-macro_rules! uninit_array {
-    ($($vis:vis const $id:ident: [$ty:ty; $len:expr] = [$($init_element:expr),*];)*) => {
-        $($vis const $id: [::core::mem::MaybeUninit<$ty>; $len] = {
-            let mut ret = [::core::mem::MaybeUninit::uninit(); $len];
-            let mut idx = 0;
-            $(
-                idx += 1;
-                ret[idx - 1] = ::core::mem::MaybeUninit::new($init_element);
-            )*
-            ret
-        };)*
-    };
 }
 
 #[macro_export]
@@ -260,4 +188,92 @@ macro_rules! bench {
         #[cfg(all(feature = "nightly", test))]
         $vis mod $modname;
     };
+}
+
+#[macro_export]
+macro_rules! is_64b {
+    () => {
+        cfg!(target_pointer_width = "64")
+    };
+}
+
+#[macro_export]
+macro_rules! concat_array_to_array {
+    ($a:expr, $b:expr) => {{
+        const BUFFER_A: [u8; $a.len()] = crate::util::copy_slice_to_array($a);
+        const BUFFER_B: [u8; $b.len()] = crate::util::copy_slice_to_array($b);
+        const BUFFER: [u8; BUFFER_A.len() + BUFFER_B.len()] = unsafe {
+            // UNSAFE(@ohsayan): safe because align = 1
+            core::mem::transmute((BUFFER_A, BUFFER_B))
+        };
+        BUFFER
+    }};
+    ($a:expr, $b:expr, $c:expr) => {{
+        const LA: usize = $a.len() + $b.len();
+        const LB: usize = LA + $c.len();
+        const S_1: [u8; LA] = concat_array_to_array!($a, $b);
+        const S_2: [u8; LB] = concat_array_to_array!(&S_1, $c);
+        S_2
+    }};
+}
+
+#[macro_export]
+macro_rules! concat_str_to_array {
+    ($a:expr, $b:expr) => {
+        concat_array_to_array!($a.as_bytes(), $b.as_bytes())
+    };
+    ($a:expr, $b:expr, $c:expr) => {{
+        concat_array_to_array!($a.as_bytes(), $b.as_bytes(), $c.as_bytes())
+    }};
+}
+
+#[macro_export]
+macro_rules! concat_str_to_str {
+    ($a:expr, $b:expr) => {{
+        const BUFFER: [u8; ::core::primitive::str::len($a) + ::core::primitive::str::len($b)] =
+            concat_str_to_array!($a, $b);
+        const STATIC_BUFFER: &[u8] = &BUFFER;
+        unsafe {
+            // UNSAFE(@ohsayan): all good because of restriction to str
+            core::str::from_utf8_unchecked(&STATIC_BUFFER)
+        }
+    }};
+    ($a:expr, $b:expr, $c:expr) => {{
+        const A: &str = concat_str_to_str!($a, $b);
+        concat_str_to_str!(A, $c)
+    }};
+}
+
+#[macro_export]
+macro_rules! exit {
+    ($do_it:expr, $code:expr) => {{
+        $do_it;
+        ::std::process::exit($code)
+    }};
+    ($code:expr) => {
+        ::std::process::exit($code)
+    };
+}
+
+#[macro_export]
+macro_rules! exit_fatal {
+    ($do_it:expr) => {{
+        $do_it;
+        $crate::util::exit_error()
+    }};
+}
+
+#[allow(unused_macros)]
+macro_rules! decl {
+    ($(let $array:ident: [$type:ty] = [$($expr:expr),* $(,)?]);* $(;)?) => {
+        $(mod $array { pub const SIZE: usize = { let mut i = 0; $(let _ = stringify!($expr); i += 1;)* i += 0; i }; }
+        let $array: [$type; $array::SIZE] = [$($expr),*];)*
+    }
+}
+
+macro_rules! pathbuf {
+    ($($component:expr),+ $(,)?) => {{
+        let mut path = ::std::path::PathBuf::new();
+        $(path.push($component);)*path
+    }};
 }

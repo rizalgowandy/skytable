@@ -1,0 +1,34 @@
+skysh {version}
+Sayan N. <ohsayan@outlook.com>
+The Skytable interactive shell (skysh)
+
+USAGE:
+    skysh [OPTIONS]
+
+FLAGS:
+    --help          Diplays this help message
+    --version       Displays the shell version
+
+OPTIONS:
+    --endpoint      Set the endpoint for the connection
+    --user          Set the user for this client session
+    --password      Set the password for this client session
+    --tls-cert      Set the TLS certificate to use (for TLS endpoints)
+    --eval, -e      Execute and print the query (password must be set)
+
+NOTES:
+    - If no password is supplied, we look for the `{password_env_var}`
+      environment variable
+    - When no endpoint is specified, skysh will attempt to connect to the default
+    TCP endpoint `{default_tcp_endpoint}`
+    - When no user is specified, skysh will attempt to authenticate as root
+    - All connections need an username and password. If this is not provided
+    via arguments, it will be asked for interactively
+    - Endpoints are specified using the Skytable endpoint syntax. For example,
+    the default TCP endpoint is `{default_tcp_endpoint}` while the default TLS
+    endpoint is `{default_tls_endpoint}`
+    - If you choose to use a TLS endpoint, you must provide a certificate.
+    Failing to do so will throw an error, as expected
+    - All history is stored in the `.sky_history` file, in the user's home directory unless
+      otherwise configured using the `SKYSH_HISTORY_FILE` environment variable. If you wish
+      to delete your shell history, simply remove the file

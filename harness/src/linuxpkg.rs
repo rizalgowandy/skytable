@@ -27,9 +27,10 @@
 use {
     crate::{
         build::{self, BuildMode},
-        {util, HarnessResult},
+        error::HarnessError,
+        util, HarnessResult,
     },
-    libsky::VERSION,
+    libsky::variables::VERSION,
 };
 
 /// The Linux package type
@@ -68,6 +69,11 @@ impl ToString for LinuxPackageType {
 
 /// Creates a Linux package for the provided Linux package type
 pub fn create_linuxpkg(package_type: LinuxPackageType) -> HarnessResult<()> {
+    if !cfg!(target_os = "linux") {
+        return Err(HarnessError::Other(format!(
+            "invalid target for building Debian package. Host OS must be Linux-based"
+        )));
+    }
     info!("Building binaries for Linux package");
     let _ = build::build(BuildMode::Release)?;
     info!("Creating Linux package");
@@ -76,6 +82,18 @@ pub fn create_linuxpkg(package_type: LinuxPackageType) -> HarnessResult<()> {
         LinuxPackageType::Deb => {
             // install cargo-deb
             util::handle_child("install cargo-deb", cmd!("cargo", "install", "cargo-deb"))?;
+            // make files executable
+            util::handle_child(
+                "make maintainer scripts executable",
+                cmd!(
+                    "chmod",
+                    "+x",
+                    "pkg/debian/postinst",
+                    "pkg/debian/preinst",
+                    "pkg/debian/postrm",
+                    "pkg/debian/prerm"
+                ),
+            )?;
             // assemble the command
             let mut build_args = vec!["cargo".into(), "deb".to_owned()];
             if let Some(t) = util::get_var(util::VAR_TARGET) {

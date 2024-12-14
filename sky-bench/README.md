@@ -1,20 +1,20 @@
 # Skytable Benchmark Tool
 
-`sky-bench` is Skytable's benchmarking tool. Unlike most other benchmarking tools, Skytable's benchmark
-tool doesn't do anything "fancy" to make benchmarks appear better than they are. As it happens, the benchmark tool might show Skytable to be slower!
+Skytable's benchmark tool `sky-bench` is a fairly advanced load-testing tool that can be used to analyze the performance of Skytable installations, and its performance on a certain network with support for full spectrum latency analysis. One of the primary goals of this tool is to provide **real-world like workloads** and hence as part of the throughput report we output raw throughput and the parsing and validation overhead that you would incur in the real-world when you use Skytable in your applications.
 
-Here's how the benchmark tool works (it's dead simple):
+The core of this utility is relatively simple: a thread-pool is created on top of which multiple client "tasks" execute queries. For each query, multiple statistics are computed including:
 
-1. Depending on the configuration it launches "network pools" which are just thread pools where each worker
-   holds a persistent connection to the database (something like a connection pool)
-2. A collection of unique, random keys are generated using a PRNG provided by the `rand` library that is
-   seeded using the OS' source of randomness. The values are allowed to repeat
-3. The [Skytable Rust driver](https://github.com/skytable/client-rust) is used to generate _raw query packets_. To put it simply, the keys and values are turned into `Query` objects and then into the raw bytes that will be sent over the network. (This just makes it simpler to design the network pool interface)
-4. For every type of benchmark (GET,SET,...) we use the network pool to send all the bytes and wait until we receive the expected response. We time how long it takes to send and receive the response for all the queries for the given test (aggregate)
-5. We repeat this for all the remaining tests
-6. We repeat the entire set of tests 5 times (by default, this can be changed).
-7. We do the calculations and output the results.
+- the server latency (sampled for each query) which is the time taken for a response from the server to first reach the client
+- the full latency (sampled for each query) which is the total time taken for a full response to be received from the server
 
-## License
+## Workloads
 
-All files in this directory are distributed under the [AGPL-3.0 License](../LICENSE).
+A workload based approach is used for benchmarking. The currently supported workload is `uniform_std_v1` (see the benchmark output for more details on what is executed). Overall, multiple unique rows (1,000,000 unique rows by default) are created with `INSERT`, manipulated with an `UPDATE`, fetched with a `SELECT` and finally deleted with a `DELETE`. Hence, for each unique row 4 queries are executed; this means a total of 4,000,000 queries are executed by default.
+
+The workload can be selected using `--workload {workload_name}`.
+
+## Engine-based *(deprecated)*
+
+Previously an engine-based approach was used which is now deprecated due to lack of extensibility and other limitations with comprehensive execution analysis. The engines available are `rookie` and `fury`. The engine can be selected using `--engine {engine_name}`.
+
+Please note that we **do not recommend using these options and recommend you to use workloads instead**.

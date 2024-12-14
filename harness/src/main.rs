@@ -28,9 +28,11 @@
 extern crate log;
 #[macro_use]
 mod util;
+mod audit;
 mod build;
 mod bundle;
 mod cli;
+mod diagnostics;
 mod error;
 mod linuxpkg;
 mod presetup;
@@ -52,21 +54,26 @@ fn main() {
     Builder::new()
         .parse_filters(&env::var("SKYHARNESS_LOG").unwrap_or_else(|_| "info".to_owned()))
         .init();
-    // avoid verbose logging
-    env::set_var("SKY_LOG", "error");
+    env::set_var("SKY_LOG", "trace");
     if let Err(e) = runner() {
         error!("harness failed with: {}", e);
+        error!("fetching logs from server processes");
+        for ret in test::get_children() {
+            ret.print_logs();
+        }
         process::exit(0x01);
     }
 }
 
 fn runner() -> HarnessResult<()> {
     let harness = cli::HarnessWhat::from_env()?;
+    diagnostics::report_if_not_official_target();
     presetup::install_deps()?;
     match harness {
         HarnessWhat::Test => test::run_test()?,
         HarnessWhat::Bundle(bundle_mode) => bundle::bundle(bundle_mode)?,
         HarnessWhat::LinuxPackage(pkg) => linuxpkg::create_linuxpkg(pkg)?,
+        HarnessWhat::Audit => audit::audit()?,
     }
     info!(
         "Successfully finished running harness for {}",
